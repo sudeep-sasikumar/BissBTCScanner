@@ -1,0 +1,104 @@
+# BissBTC HTF sweep -> LTF reclaim system. Every value in BUILD_PROMPT.md's {{ }} lives here.
+# Percentages are fractions (0.20 = 20%).
+
+data:
+  dir: data                      # parquet cache (git-ignored)
+  start: "2022-10-01"            # first signal date (prompt section 8.1: Oct 2022 - present)
+  warmup_start: "2019-09-01"     # history used to build HTF levels before the first signal
+  ltf: 15m
+
+venue:
+  weex_base: https://api-contract.weex.com
+  binance_fapi: https://fapi.binance.com
+  binance_vision: https://data.binance.vision
+  # Fallbacks used only when WEEX doesn't return a value (prompt 3.1)
+  default_fee_side: 0.0005
+  default_lev_cap: {btc_eth: 10, crypto: 5, tradfi: 3}
+
+levels:
+  pivot_bars: 2                  # confirmed after N bars each side
+  min_move_pct: 0.20             # validation move, max(min_move_pct, k * median bar range)
+  k_median_range: 2.5
+  validate_within: 10            # N bars
+  median_range_lookback: 52      # bars used for the median bar range
+  include_opens: [yearly, monthly, weekly]
+  include_prior_range: true      # prior month/week high & low
+  merge_pct: 0.005
+  location_pct: 0.25             # long level in bottom 25% of prior range (mirror for shorts)
+  location_lookback_days: 60
+  max_level_dist_pct: 0.15       # only consider levels within 15% of price (search window)
+
+sweep:
+  min_atr4h: 0.3                 # sweep_min = 0.3 * ATR(4h)
+  max_atr1d: 1.5                 # sweep_max = 1.5 * ATR(daily) -> acceptance
+  max_days_below: 3              # daily closes below level -> acceptance
+  skip_weekend: true
+  atr_len: 14
+
+reclaim:
+  variants: [R1, R2, R3]
+  r1_n_closes: 2
+  window_hours: 72
+  r3_window_weeks: 3
+
+entry:
+  variants: [E1, E2]
+  e2_expire_hours: 24
+  max_attempts: 2
+
+stop:
+  buffer_atr4h: 0.3              # max(0.3 * ATR(4h), 1%)
+  buffer_pct: 0.01
+  max_stop_pct: 0.12
+  early_exit_close_below: false  # variant only
+
+targets:
+  min_rr: 2.0                    # skip if TP2 < 2R
+  tp1_min_r: 1.0
+  deep_dd_prior_high_days: 120
+  range_lookback_days: 60
+
+management:
+  default: partial_1r_be         # 50% at +1R, stop to entry, rest to TP2
+  variants: [partial_1r_be, fixed_2r, fixed_3r, partial_tp1, trail_4h_hl, time_stop]
+  time_stop_days: 20
+
+filters:
+  regime_flip_days: 2            # 2-3 consecutive days to flip regime
+  dd_crypto: [0.30, 0.50]        # 30-50% below 120-day high
+  dd_tradfi: [0.10, 0.30]
+  dd_lookback_days: 120
+  fomc_days: 7
+  quarter_close_days: 3
+  earnings_sessions: 2
+
+universe:
+  t1: [BTC, ETH, HYPE, SOL, ZEC]
+  t2_top_n: 50
+  liquidity_floor_usd: 20000000  # 30-day median daily volume
+  rank_lookback_days: 30
+
+sizing:
+  risk_pct: [0.02, 0.03, 0.04, 0.05]
+  default_risk: 0.03
+  lev_caps: {BTC: 10, ETH: 10, crypto: 5, tradfi: 3}
+  liq_buffer_mult: 1.0           # liq price beyond stop by >= 1x stop distance
+  tier_mult: {strong: 1.0, weekly_only: 0.6, short: 0.5, tradfi: 0.5}
+  max_open_risk: 0.20
+  max_per_cluster: 3
+  challenge_risk: [0.20, 0.50]   # mode (b), stress test only
+
+costs:
+  slippage: {T1: 0.0002, T2: 0.001, T3: 0.003, T4: 0.001}
+  tradfi_funding_assumption_8h: 0.0001   # stated assumption when no history
+
+validation:
+  split_date: "2024-10-15"       # first half / second half of Oct 2022 - Nov 2026
+  holdout_frac: 0.30             # share of symbols held out from design (deterministic hash)
+  shuffles: 300
+  seed: 7
+
+scanner:
+  poll_seconds: 60
+  state_db: data/scanner_state.sqlite
+  # Telegram token / chat id come from env: BISS_TG_TOKEN, BISS_TG_CHAT. Never hard-code.
