@@ -14,7 +14,8 @@ from .portfolio import cluster_of
 from .sizing import lev_cap, mmr_for
 from .universe import is_holdout
 
-FILTERS = ["F1_regime", "F2_drawdown", "F3_fomc", "F3_qclose", "F4_location", "stop_max", "min_rr"]
+# F1_bull: BTC IS in its bull regime - the short-side filter (inverse of F1_regime, which longs use for sizing)
+FILTERS = ["F1_regime", "F1_bull", "F2_drawdown", "F3_fomc", "F3_qclose", "F4_location", "stop_max", "min_rr"]
 
 
 @lru_cache(maxsize=1)
@@ -70,11 +71,13 @@ def enrich(df: pd.DataFrame, cfg) -> pd.DataFrame:
     bull = btc_regime(btc, cfg.filters.regime_flip_days)
     day = (df["entry_time"].dt.floor("D") - pd.Timedelta(days=1))
     df["btc_bull"] = day.map(bull).fillna(False).astype(bool)
+    df["btc_bear"] = day.map(btc_regime(btc, cfg.filters.regime_flip_days, bear=True)).fillna(False).astype(bool)
     f = cfg.filters
     tradfi = df["asset_class"] != "crypto"
     lo = np.where(tradfi, f.dd_tradfi[0], f.dd_crypto[0])
     hi = np.where(tradfi, f.dd_tradfi[1], f.dd_crypto[1])
     df["F1_regime"] = ~df["btc_bull"] | tradfi
+    df["F1_bull"] = df["btc_bull"] | tradfi
     df["F2_drawdown"] = (df["dd_from_120d"] >= lo) & (df["dd_from_120d"] <= hi)
     df["F3_fomc"] = df["days_to_fomc"].abs() > f.fomc_days
     df["F3_qclose"] = df["days_to_qclose"] > f.quarter_close_days

@@ -92,7 +92,7 @@ def simulate(trades: pd.DataFrame, risk_pct: float, cfg, brackets: dict, mode: s
             skipped["no_margin"] = skipped.get("no_margin", 0) + 1
             continue
         s = size(bal, free, rp, float(r["stop_pct"]), float(r["lev_cap"]), brackets.get(r["weex_symbol"]),
-                 sz.liq_buffer_mult)
+                 sz.liq_buffer_mult, bool(sz.get("whole_leverage")))
         if s["notional"] <= 0:
             skipped["no_margin"] = skipped.get("no_margin", 0) + 1
             continue

@@ -79,7 +79,8 @@ ul.rules{margin:6px 0 0;padding-left:18px}ul.rules li{margin:3px 0}
   <div class="top">
     <div><h1>BissBTC Scanner <span class="chip warn">PAPER</span></h1>
       <div class="muted small" id="sub">loading...</div></div>
-    <div id="status"></div>
+    <div><span id="status"></span> <button class="btn" id="tgTest" type="button" style="padding:4px 10px;font-size:12px">Send Telegram test</button>
+      <div class="small" id="tgMsg" style="text-align:right;min-height:16px"></div></div>
   </div>
   <div id="banner"></div>
   <nav class="tabs" id="tabs">
@@ -368,7 +369,8 @@ function renderStrategy(p) {
   const fl = list => (list || []).map(k => ({F2_drawdown: `F2 drawdown ${pct(p.dd_crypto?.[0], 0)}–${pct(p.dd_crypto?.[1], 0)} below the 120-day high`,
     F3_fomc: `FOMC: no entry within ±${p.fomc_days} days`, F3_qclose: `Quarter close: no entry within ${p.quarter_close_days} days`,
     F4_location: "F4 location: level in the bottom 25% of the 60-day range (shorts: top 25%)", stop_max: `Stop ≤ ${pct(p.max_stop_pct, 0)}`,
-    F1_regime: "F1 BTC regime", min_rr: "R:R to TP2 ≥ 2"}[k] || k));
+    F1_regime: "F1 BTC regime", min_rr: "R:R to TP2 ≥ 2",
+    F1_bull: "F1 inverse: BTC in its bull regime (close > 200-day average and 50-day > 200-day)"}[k] || k));
   const li = a => "<ul class='rules'>" + a.map(x => `<li>${esc(x)}</li>`).join("") + "</ul>";
   const caps = Object.entries(p.lev_caps || {}).map(([k, v]) => `${k} ${v}x`).join(", ");
   $("stratBox").innerHTML =
@@ -402,6 +404,15 @@ async function load() {
     if (!BT) { const b = await fetch("api/backtest", {credentials: "same-origin"}); if (b.ok) { BT = await b.json(); renderBT(); } }
   } catch (e) { $("banner").innerHTML = `<div class="banner bad">Could not load data: ${esc(e.message)}</div>`; }
 }
+$("tgTest").addEventListener("click", async () => {
+  const b = $("tgTest"); b.disabled = true; $("tgMsg").textContent = "sending...";
+  try {
+    const r = await fetch("api/telegram_test", {method: "POST", headers: {"Content-Type": "application/json"}, credentials: "same-origin", body: "{}"});
+    const j = await r.json().catch(() => ({}));
+    $("tgMsg").innerHTML = r.ok ? '<span class="pos">Sent - check Telegram</span>' : `<span class="neg">${esc(j.detail || j.error || r.status)}</span>`;
+  } catch (e) { $("tgMsg").innerHTML = `<span class="neg">${esc(e.message)}</span>`; }
+  setTimeout(() => b.disabled = false, 30000);
+});
 $("loginForm").addEventListener("submit", async e => {
   e.preventDefault(); $("loginErr").textContent = "";
   const r = await fetch("login", {method: "POST", headers: {"Content-Type": "application/json"}, credentials: "same-origin", body: JSON.stringify({password: $("pw").value})});

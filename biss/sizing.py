@@ -35,15 +35,18 @@ def liq_price_frac(lev: float, mmr: float) -> float:
 
 
 def size(equity: float, free_margin: float, risk_pct: float, stop_pct: float, cap: float,
-         brackets: list[dict] | None, liq_mult: float) -> dict:
+         brackets: list[dict] | None, liq_mult: float, whole_lev: bool = False) -> dict:
     """Returns notional, margin, leverage and flags. Size is cut (never the stop widened) when the cap,
-    liquidation buffer or free margin can't support the full risk."""
+    liquidation buffer or free margin can't support the full risk. whole_lev: WEEX takes whole-number
+    leverage only, so the leverage is rounded DOWN (4.6x -> 4x): more margin, liquidation further away."""
     risk_usd = equity * risk_pct
     notional = risk_usd / stop_pct
     mmr, bmax = mmr_for(brackets, notional)
     need_lev = 1.0 / ((1 + liq_mult) * stop_pct + mmr)
     lev = min(cap, bmax, need_lev)
     lev = max(lev, 1.0) if need_lev >= 1.0 else need_lev
+    if whole_lev and lev >= 1.0:
+        lev = float(math.floor(lev + 1e-9))
     at_cap = need_lev > min(cap, bmax)
     margin = notional / lev
     shrunk = False

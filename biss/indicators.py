@@ -32,10 +32,11 @@ def atr(df: pd.DataFrame, n: int = 14) -> pd.Series:
     return tr.ewm(alpha=1 / n, adjust=False, min_periods=n).mean()
 
 
-def btc_regime(btc_daily: pd.DataFrame, flip_days: int = 2) -> pd.Series:
+def btc_regime(btc_daily: pd.DataFrame, flip_days: int = 2, bear: bool = False) -> pd.Series:
     """True = bull (close > SMA200 and SMA50 > SMA200), with a flip only after `flip_days` consecutive days
-    of the new state. Value on day d is known at d's close; use .shift(1) for decisions during day d+1."""
-    c = btc_daily["close"]
+    of the new state. Value on day d is known at d's close; use .shift(1) for decisions during day d+1.
+    bear=True: the mirror, True = bear (close < SMA200 and SMA50 < SMA200)."""
+    c = -btc_daily["close"] if bear else btc_daily["close"]
     s200, s50 = c.rolling(200).mean(), c.rolling(50).mean()
     raw = ((c > s200) & (s50 > s200)).to_numpy()
     valid = s200.notna().to_numpy()

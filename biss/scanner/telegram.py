@@ -19,17 +19,29 @@ def configured() -> bool:
     return bool(token and chat)
 
 
-def send(text: str) -> bool:
+def send_detail(text: str) -> tuple[bool, str]:
+    """(sent, what Telegram said). The detail never contains the token."""
     token, chat = _creds()
     if not token or not chat:
         print("[telegram not configured]\n" + text, flush=True)
-        return False
+        return False, "TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID is not set"
     try:
         r = requests.post(f"https://api.telegram.org/bot{token}/sendMessage",
                           json={"chat_id": chat, "text": text[:4000], "disable_web_page_preview": True}, timeout=20)
     except requests.RequestException as e:
         print("telegram error", type(e).__name__, flush=True)  # never print the URL: it holds the token
-        return False
+        return False, f"network error ({type(e).__name__})"
     if r.status_code != 200:
-        print("telegram error", r.status_code, r.text[:200], flush=True)
-    return r.status_code == 200
+        try:
+            desc = r.json().get("description", "")
+        except ValueError:
+            desc = r.text[:200]
+        print("telegram error", r.status_code, desc, flush=True)
+        hint = (" - open the bot in Telegram and press Start, then check TELEGRAM_CHAT_ID"
+                if r.status_code in (400, 403) else "")
+        return False, f"Telegram {r.status_code}: {desc}{hint}"
+    return True, "sent"
+
+
+def send(text: str) -> bool:
+    return send_detail(text)[0]

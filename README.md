@@ -83,7 +83,7 @@ On this PC: `python -m biss.dashboard` (http://127.0.0.1:8030, no login on local
 - Current profile (26 Nov 2026): R3w / E2 on T1 + T2 crypto (T1 list plus the top 50 WEEX crypto perps by
   24h volume, no TradeFi), longs and shorts. Sweep minimum 0.3 x ATR(4h), weekend sweeps skipped.
   Long filters: F2 drawdown, FOMC ±7 days, quarter close ±3 days, F4 location, stop ≤ 12%. Short filters: the
-  same without F2. Risk 10% of paper equity x conviction (monthly level, or weekly level with F2 in band and F1 BTC regime = 1.0x,
+  same without F2, plus BTC in its bull regime (F1 inverse). Risk 10% of paper equity x conviction (monthly level, or weekly level with F2 in band and F1 BTC regime = 1.0x,
   otherwise 0.6x; shorts x0.5), total open risk ≤ 60%, no per-cluster cap, one position per coin per side,
   leverage caps 10x T1 / 5x T2, isolated margin. Paper equity follows closed paper trades.
 - With the liquidation 1 stop-distance beyond the stop, margin is at least about 2.1x the risk, so at 10% risk

@@ -133,9 +133,10 @@ def test_portfolio_no_cluster_cap_open_risk_cap_one_per_side():
     # open-risk cap: 25% cap, 10% risk per trade -> 2 open
     res = psim(eight, 0.10, cfg.override(**{"sizing.max_open_risk": 0.25}), {}, "a")
     assert res["taken"] == 2 and res["skipped"]["open_risk_cap"] == 6
-    # at 10% risk margin binds before the 60% cap: margin >= ~2.1x risk when liq sits 1 stop beyond the stop
+    # at 10% risk margin binds before the 60% cap: margin >= ~2.1x risk when liq sits 1 stop beyond the stop;
+    # 8% stops need 5.9x, rounded down to 5x on WEEX -> $250 margin each -> 4 fit in $1,000
     res = psim(eight, 0.10, cfg, {}, "a")
-    assert res["taken"] == 5 and "open_risk_cap" not in res["skipped"]
+    assert res["taken"] == 4 and "open_risk_cap" not in res["skipped"]
     same = pd.DataFrame([_trade("C0USDT", "long", "2025-01-01", "2025-02-01"),
                          _trade("C0USDT", "short", "2025-01-02", "2025-02-01", 0.5),
                          _trade("C0USDT", "long", "2025-01-03", "2025-02-01")])
@@ -149,8 +150,17 @@ def test_scanner_profile_in_config():
     sc = cfg.scanner
     assert sc.reclaim == "R3w" and sc.entry == "E2" and sc.shorts and not sc.all_contracts
     assert list(sc.required_filters["long"]) == ["F2_drawdown", "F3_fomc", "F3_qclose", "F4_location", "stop_max"]
-    assert list(sc.required_filters["short"]) == ["F3_fomc", "F3_qclose", "F4_location", "stop_max"]
+    assert list(sc.required_filters["short"]) == ["F1_bull", "F3_fomc", "F3_qclose", "F4_location", "stop_max"]
     assert cfg.sweep.min_atr4h == pytest.approx(0.3) and cfg.sweep.skip_weekend and cfg.filters.fomc_days == 7
     assert cfg.sizing.default_risk == pytest.approx(0.10)
     caps = cfg.sizing.lev_caps
     assert all(caps[b] == 10 for b in cfg.universe.t1) and caps["crypto"] == 5
+
+
+def test_whole_number_leverage_rounds_down():
+    # need lev = 1/(2*0.10 + 0.01) = 4.76 -> 4x on WEEX: same risk and notional, more margin, liq further away
+    z = size(1000, 1000, 0.10, 0.10, cap=5, brackets=None, liq_mult=1.0, whole_lev=True)
+    assert z["lev"] == 4.0 and z["notional"] == pytest.approx(1000) and z["margin"] == pytest.approx(250)
+    assert z["liq_frac"] > 2 * 0.10
+    assert size(1000, 1000, 0.10, 0.02, cap=5, brackets=None, liq_mult=1.0, whole_lev=True)["lev"] == 5.0
+    assert config.load().sizing.whole_leverage

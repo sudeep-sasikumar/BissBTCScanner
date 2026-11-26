@@ -1,12 +1,12 @@
 # Strategy backtest (main, 200 orderings)
 
-Scanner profile in config.yaml: R3w/E2, tiers ['T1', 'T2'], filters {'long': ['F2_drawdown', 'F3_fomc', 'F3_qclose', 'F4_location', 'stop_max'], 'short': ['F3_fomc', 'F3_qclose', 'F4_location', 'stop_max']}, risk 10% x conviction, open-risk cap 60%, cluster cap None.
+Scanner profile in config.yaml: R3w/E2, tiers ['T1', 'T2'], filters {'long': ['F2_drawdown', 'F3_fomc', 'F3_qclose', 'F4_location', 'stop_max'], 'short': ['F1_bull', 'F3_fomc', 'F3_qclose', 'F4_location', 'stop_max']}, risk 10% x conviction, open-risk cap 60%, cluster cap None.
 
-Signals 462 (233 long, 229 short), 2022-10-10 to 2026-11-09.
+Signals 389 (233 long, 156 short), 2022-10-10 to 2026-11-09.
 
-$1,000 start: median end $26,011, worst 10% $16,882, best 10% $42,807; median max drawdown 57% (worst 10% 61%); median trades taken 358.
+$1,000 start: median end $45,695, worst 10% $27,160, best 10% $69,379; median max drawdown 56% (worst 10% 60%); median trades taken 304.
 
-Median route: end $26,021, max drawdown 59%, taken 367, skipped {'no_margin': 95}, Sharpe 1.20, Sortino 3.45, CAGR 120%.
+Median route: end $45,884, max drawdown 56%, taken 302, skipped {'no_margin': 87}, Sharpe 1.52, Sortino 3.60, CAGR 145%.
 
 ## Per side and tier
 
@@ -14,5 +14,5 @@ Median route: end $26,021, max drawdown 59%, taken 367, skipped {'no_margin': 95
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | long T1 | 26 | 88.5 | 11.5 | 0 | 1.101 | 0.467 | 10.13 | 28.6 | 1 | 1.1 | 20.5 | 0.48 | 7.51 | 0.166 | 91 | 0.98 | 0.022 | 7.3 | 17.6 | 11.5 |
 | long T2 | 207 | 57 | 43 | 0 | 0.354 | 0.423 | 1.77 | 73.3 | 14 | 31.9 | 7.6 | 2.03 | 7.66 | 0.067 | 82 | 4.49 | 0.035 | 6.9 | 16.2 | 77.8 |
-| short T1 | 54 | 46.3 | 53.7 | 0 | -0.061 | -0.949 | 0.89 | -3.3 | 6 | 11.3 | 9 | 0.66 | 6.9 | -0.496 |  | -1.95 | 0.028 | 8.5 | 17.9 | 31.5 |
-| short T2 | 175 | 53.7 | 46.3 | 0 | 0.142 | 0.44 | 1.3 | 24.9 | 6 | 16.8 | 6.8 | 2.5 | 8.41 | -0.099 | 165 | -3.24 | 0.031 | 6.3 | 15.7 | 67.4 |
+| short T1 | 37 | 51.4 | 48.6 | 0 | 0.062 | 0.427 | 1.13 | 2.3 | 5 | 7.4 | 8.9 | 0.51 | 6.93 | -0.504 | 695 | -1.63 | 0.027 | 8.2 | 17.9 | 27 |
+| short T2 | 119 | 61.3 | 38.7 | 0 | 0.37 | 0.474 | 1.93 | 44 | 4 | 8.8 | 6.9 | 2.07 | 8.48 | 0.03 | 93 | -2.36 | 0.03 | 6.2 | 15.7 | 66.4 |

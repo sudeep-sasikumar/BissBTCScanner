@@ -177,6 +177,7 @@ class Scanner:
         lo, hi = (f.dd_crypto if asset == "crypto" else f.dd_tradfi)
         flags = {
             "F1_regime": (not bull) or asset != "crypto" or s["side"] == "short",
+            "F1_bull": bull or asset != "crypto",          # short-side filter: BTC in its bull regime
             "F2_drawdown": bool(lo <= s["dd_from_120d"] <= hi),
             "F3_fomc": abs(s["days_to_fomc"]) > f.fomc_days,
             "F3_qclose": s["days_to_qclose"] > f.quarter_close_days,
@@ -198,7 +199,8 @@ class Scanner:
         eq = self.equity()
         free = eq - sum(float(t.get("margin") or 0) for t in self.state["open"])
         rp = float(cfg.sizing.default_risk) * mult
-        z = size(eq, free, rp, s["stop_pct"], cap, self.brackets.get(sym), cfg.sizing.liq_buffer_mult)
+        z = size(eq, free, rp, s["stop_pct"], cap, self.brackets.get(sym), cfg.sizing.liq_buffer_mult,
+                 bool(cfg.sizing.get("whole_leverage")))
         open_risk = self.open_risk_usd() / eq if eq > 0 else 1.0
         risk_cap_ok = open_risk + rp <= float(cfg.sizing.max_open_risk) + 1e-9
         sign = 1 if s["side"] == "long" else -1

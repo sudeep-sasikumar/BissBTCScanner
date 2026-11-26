@@ -59,4 +59,20 @@ def test_scanner_conviction_needs_btc_regime(monkeypatch):
         monkeypatch.setattr(live, "btc_regime", lambda d, n, b=bull: pd.Series([b, b]))
         assert s.enrich("DOGEUSDT", dict(sig))["risk_mult"] == mult
     short = s.enrich("DOGEUSDT", dict(sig, side="short"))       # bull regime: weekly short is 0.6 x 0.5
-    assert short["risk_mult"] == 0.3
+    assert short["risk_mult"] == 0.3 and short["passes"]            # shorts need BTC in its bull regime
+    monkeypatch.setattr(live, "btc_regime", lambda d, n: pd.Series([False, False]))
+    assert not s.enrich("DOGEUSDT", dict(sig, side="short"))["passes"]
+
+
+def test_telegram_test_button_reports_missing_config(tmp_path, monkeypatch):
+    for k in ("TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID", "BISS_TG_TOKEN", "BISS_TG_CHAT"):
+        monkeypatch.delenv(k, raising=False)
+
+    async def run():
+        app = dashboard.build_app(_cfg(tmp_path), "pw", need_login=False, cookie_secure=False)
+        async with TestClient(TestServer(app)) as c:
+            r = await c.post("/api/telegram_test", json={})
+            assert r.status == 502 and "not set" in (await r.json())["detail"]
+            assert (await c.post("/api/telegram_test", json={})).status == 429      # 30 s between tests
+            assert (await c.post("/api/telegram_test", data="x")).status == 400     # JSON only
+    asyncio.run(run())

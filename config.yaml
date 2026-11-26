@@ -83,6 +83,7 @@ sizing:
   default_risk: 0.10              # base risk per trade, scaled by tier_mult (strategy of 26 Nov)
   lev_caps: {BTC: 10, ETH: 10, HYPE: 10, SOL: 10, ZEC: 10, crypto: 5, tradfi: 3}   # T1 10x, T2 5x
   liq_buffer_mult: 1.0           # liq price beyond stop by >= 1x stop distance
+  whole_leverage: true           # WEEX takes whole-number leverage: round down (4.6x -> 4x)
   # strong = monthly level, or weekly level with F2 drawdown in band and F1 passing (BTC regime term)
   tier_mult: {strong: 1.0, weekly_only: 0.6, short: 0.5, tradfi: 0.5}
   strong_needs_regime: true      # weekly level needs F2 AND F1 (BTC not in its bull regime) for 1.0x (user choice 26 Nov)
@@ -103,9 +104,10 @@ validation:
 
 scanner:
   # PAPER ALERTS ONLY. Strategy of 26 Nov 2026 (user spec): R3w / E2, T1 + T2 crypto, longs and shorts.
-  # Backtest (scripts/u12_strategy.py main 200 -> reports/strategy.md; $1,000, 200 orderings): 462 signals,
-  # median end $26,011, worst-10% $16,882, median max drawdown 57%. Without the regime term
-  # (sizing.strong_needs_regime: false): $21,958 / $14,133 / 62%. User's reference: $25,737 / $15,077 / 55%.
+  # Backtest (scripts/u12_strategy.py main 200 -> reports/strategy.md; $1,000, 200 orderings, whole-number
+  # leverage): 389 signals (233 long, 156 short), median end $45,695, worst-10% $27,160, median max drawdown 56%.
+  # Before the short F1_bull filter: 462 signals, $24,098 / $15,224 / 57% (whole leverage), $26,011 with
+  # fractional leverage. User's original reference: $25,737 / $15,077 / 55%.
   poll_seconds: 60
   state_file: data/scanner_state.json
   symbols: [BTCUSDT, ETHUSDT, SOLUSDT, HYPEUSDT, ZECUSDT]   # T1
@@ -119,7 +121,7 @@ scanner:
   paper_equity: 1000
   required_filters:              # per side; alerts still show every filter
     long: [F2_drawdown, F3_fomc, F3_qclose, F4_location, stop_max]
-    short: [F3_fomc, F3_qclose, F4_location, stop_max]
+    short: [F1_bull, F3_fomc, F3_qclose, F4_location, stop_max]   # F1_bull: shorts only while BTC is in its bull regime
   # Previous user profile (26 Nov, reports/profile_v2.md): all contracts, both sides [F3_fomc, F3_qclose,
   # stop_max], fomc_days 2, min_atr4h 0, skip_weekend false.
   alert_failed_filters: false    # true = also send near-misses, marked "FILTERS FAILED - info only"

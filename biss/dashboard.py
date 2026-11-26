@@ -24,6 +24,7 @@ from pathlib import Path
 from aiohttp import web
 
 from . import config
+from .scanner import telegram
 
 COOKIE = "biss_session"
 SESSION_DAYS = 14
@@ -154,12 +155,23 @@ def build_app(cfg, password: str, need_login: bool, cookie_secure: bool) -> web.
             return web.json_response({"error": "no backtest export in this image"}, status=404)
         return web.Response(body=BACKTEST.read_bytes(), content_type="application/json")
 
+    async def tg_test(request: web.Request):
+        if request.content_type != "application/json":          # blocks plain cross-site form posts
+            return web.json_response({"error": "send JSON"}, status=400)
+        if time.time() - cache.get("tg_t", 0.0) < 30:
+            return web.json_response({"ok": False, "detail": "wait 30 seconds between test messages"}, status=429)
+        cache["tg_t"] = time.time()
+        ok, detail = await asyncio.to_thread(
+            telegram.send_detail, "BissBTC scanner: test message from the dashboard. Alerts will arrive in this chat.")
+        return web.json_response({"ok": ok, "detail": detail}, status=200 if ok else 502)
+
     async def healthz(_r):
         return web.json_response({"ok": True})
 
     app = web.Application(middlewares=[auth])
     app.add_routes([web.get("/", index), web.post("/login", login), web.get("/api/data", data),
-                    web.get("/api/backtest", backtest), web.get("/healthz", healthz)])
+                    web.get("/api/backtest", backtest), web.get("/healthz", healthz),
+                    web.post("/api/telegram_test", tg_test)])
     return app
 
 
