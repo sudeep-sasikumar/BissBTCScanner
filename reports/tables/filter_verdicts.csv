@@ -1,0 +1,8 @@
+filter,helps_in_all_3_slices
+F1_regime,False
+F2_drawdown,True
+F3_fomc,True
+F3_qclose,True
+F4_location,True
+stop_max,True
+min_rr,False

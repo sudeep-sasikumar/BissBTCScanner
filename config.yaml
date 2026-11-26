@@ -104,11 +104,11 @@ scanner:
   # Only tiers that passed section 8 go here (see reports/backtest.md). Until a tier passes, keep this list
   # small and treat every alert as observation only.
   symbols: [BTCUSDT, ETHUSDT, SOLUSDT, HYPEUSDT, ZECUSDT]
-  top_n_by_weex_volume: 0        # >0 adds the top-N WEEX crypto perps by 24h volume
-  reclaim: R1
-  entry: E1
+  top_n_by_weex_volume: 50       # T2 proxy: top-50 WEEX crypto perps by 24h volume (T3/T4 failed validation)
+  reclaim: R3w                   # validated variant (reports/final.md); R1 15m failed out-of-sample
+  entry: E2
   shorts: false
   paper_equity: 10000
-  required_filters: [F1_regime, F2_drawdown, F3_fomc, F3_qclose, F4_location, stop_max, min_rr]
+  required_filters: [F2_drawdown, F3_fomc, F3_qclose, F4_location, stop_max]   # kept by the protocol; F1 shown as info
   alert_failed_filters: false    # true = also send near-misses, marked "FILTERS FAILED - info only"
   # Telegram token / chat id come from env: BISS_TG_TOKEN, BISS_TG_CHAT. Never hard-code.
