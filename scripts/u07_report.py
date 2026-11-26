@@ -21,7 +21,7 @@ cfg = config.load()
 REP = config.ROOT / "reports"
 TAB = REP / "tables"
 TAB.mkdir(parents=True, exist_ok=True)
-TIERS = ["T1", "T2", "T3", "T4"]
+TIERS = ["T1", "T2", "T3", "T4", "T4pool"]
 KEYS = ["trades", "win%", "loss%", "scratch%", "avgR", "medR", "PF", "maxLossStreak", "maxDD_R", "medHold_d",
         "exposure", "avg_stop%", "avg_lev_need", "max_lev_need", "at_cap%", "funding_R", "fees_R_avg"]
 md: list[str] = []
@@ -55,9 +55,11 @@ def write(name: str, df: pd.DataFrame, note: str = "") -> None:
 
 
 def main() -> None:
-    raw = load_signals("main")
+    raw = load_signals("main", keep_skipped_for={r[1] for r in REFS})
+    refraw = raw[raw.symbol.isin({r[1] for r in REFS}) & (raw.side == "long")].copy()
     df = enrich(raw, cfg)
     n_1m = raw.groupby("symbol")[["n_1m_calls", "n_1m_missing"]].max().sum() if "n_1m_calls" in raw else None
+    del raw
     md.append("# Backtest report: HTF sweep -> LTF reclaim (WEEX universe, Binance history)\n")
     md.append(f"Generated {pd.Timestamp.now(tz='UTC'):%Y-%m-%d %H:%M} UTC. Signals {df.entry_time.min():%Y-%m-%d} to "
               f"{df.entry_time.max():%Y-%m-%d}. Raw simulated signals: {len(df):,} on {df.symbol.nunique()} symbols. "
@@ -95,8 +97,12 @@ def main() -> None:
         if p.exists():
             b = pd.read_csv(p, parse_dates=["entry_time", "exit_time"])
             b = b[(b["rank"] <= 50) & b["kept"]]
-            b["slice"] = "IS"
-            b.loc[b.entry_time >= pd.Timestamp(cfg.validation.split_date, tz="UTC"), "slice"] = "OOS"
+            from biss.tiers import base_of
+            from biss.universe import is_holdout
+            ho = b.symbol.map(lambda s: is_holdout(base_of(s), cfg.validation.holdout_frac, cfg.validation.seed))
+            b["slice"] = np.where(ho, "HO", np.where(b.entry_time < pd.Timestamp(cfg.validation.split_date, tz="UTC"),
+                                                     "IS", "OOS"))
+            b["hold_days"] = b.get("hold_days", np.nan)
             b_rows[lab] = row(b)
             b_rows[lab + ", stop<=12%"] = row(b[b.stop_pct <= 0.12])
     try:
@@ -124,7 +130,7 @@ def main() -> None:
 
     # ---------- 4. ablation ----------
     sec("4. Ablation: remove one filter at a time (best variant, longs)")
-    for tiers in (["T1", "T2"], ["T3"], ["T4"]):
+    for tiers in (["T1", "T2"], ["T3"], ["T4"], ["T4pool"]):
         ab = {"all filters": row(trades(df, reclaim=best[0], entry=best[1], tiers=tiers))}
         for f in FILTERS:
             ab[f"without {f}"] = row(trades(df, reclaim=best[0], entry=best[1], tiers=tiers,
@@ -184,7 +190,7 @@ def main() -> None:
     sec("9. Account simulation, mode (a): 300 random within-week orderings, $1,000 start")
     br = brackets()
     rows = {}
-    for tier_set in (["T1"], ["T2"], ["T1", "T2"], ["T3"], ["T4"]):
+    for tier_set in (["T1"], ["T2"], ["T1", "T2"], ["T3"], ["T4"], ["T4pool"]):
         t = trades(df, reclaim=best[0], entry=best[1], tiers=tier_set)
         if len(t) < 5:
             continue
@@ -221,11 +227,51 @@ def main() -> None:
     if jr is not None and len(jr):
         jr.to_csv(REP / "journal.csv", index=False)
 
+    # ---------- 12. mark price ----------
+    sec("12. Stops checked against mark price (Binance markPriceKlines 15m, live symbols, T1+T2 trades)")
+    md.append(mark_check(trades(df, reclaim=best[0], entry=best[1], tiers=["T1", "T2"])))
+
     # ---------- 11. reference cases ----------
     sec("11. Reference cases")
-    md.append(reference_cases(df, best))
+    md.append(reference_cases(df, best, refraw))
     (REP / "backtest.md").write_text("\n".join(md), encoding="utf-8")
     print("wrote reports/backtest.md")
+
+
+def mark_check(t: pd.DataFrame, max_trades: int = 150) -> str:
+    """Does the mark price touch the original stop when last price did not (or vice versa)?"""
+    import json
+
+    from biss.data import binance
+
+    live = set(json.loads((config.data_dir(cfg) / "binance" / "symbols.json").read_text(encoding="utf-8"))["live"])
+    t = t[t.symbol.isin(live)].tail(max_trades)
+    n = both = mark_only = last_only = 0
+    worst = []
+    for r in t.itertuples():
+        a = int(r.entry_time.timestamp() * 1000)
+        b = int(r.exit_time.timestamp() * 1000)
+        try:
+            mk = binance.rest_klines(r.symbol, "15m", a, b, kind="markPriceKlines")
+        except Exception:  # noqa: BLE001
+            continue
+        if mk.empty:
+            continue
+        n += 1
+        # path until the first leg: did price reach the ORIGINAL stop?
+        mlo = mk["low"].min() if r.side == "long" else -mk["high"].max()
+        stop = r.stop if r.side == "long" else -r.stop
+        mark_hit = mlo <= stop
+        last_hit = r.outcome in ("stop",)
+        both += mark_hit and last_hit
+        mark_only += mark_hit and not last_hit
+        last_only += last_hit and not mark_hit
+        worst.append(abs(mlo - (r.entry - r.mae_frac * r.entry if r.side == "long" else -(r.entry + r.mae_frac * r.entry))) / r.entry)
+    if not n:
+        return "no mark-price data fetched\n"
+    return (f"{n} trades checked (most recent {max_trades}). Original stop touched by both last and mark: {both}; "
+            f"mark only (last price never hit, mark did - note BE moves can hide these): {mark_only}; last only: {last_only}. "
+            f"Median |mark extreme - last extreme| = {100*np.median(worst):.3f}% of entry.\n")
 
 
 REFS = [
@@ -237,8 +283,7 @@ REFS = [
 ]
 
 
-def reference_cases(df: pd.DataFrame, best) -> str:
-    raw = load_signals("main")
+def reference_cases(df: pd.DataFrame, best, raw: pd.DataFrame) -> str:
     out = ["| Case | Raw signals near level (any variant) | Best-variant signal | Filters failed | R (default mgmt) |",
            "|---|---|---|---|---|"]
     for lab, sym, lvl, a, b in REFS:

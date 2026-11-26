@@ -24,12 +24,32 @@ def brackets() -> dict:
     return json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}
 
 
-def load_signals(tag: str = "main") -> pd.DataFrame:
+def load_signals(tag: str = "main", keep_skipped_for: set | None = None) -> pd.DataFrame:
     cfg = config.load()
     d = config.data_dir(cfg) / "signals" / tag
-    parts = [pd.read_parquet(p) for p in sorted(d.glob("*.parquet"))]
-    parts = [p for p in parts if not p.empty]
+    parts = []
+    for p in sorted(d.glob("*.parquet")):
+        x = pd.read_parquet(p)
+        if x.empty:
+            continue
+        if keep_skipped_for is None or x["symbol"].iloc[0] not in keep_skipped_for:
+            x = x[x["skipped"].fillna("").astype(str).isin(["", "nan", "None"])]
+        x = x.drop(columns=[c for c in x.columns if c.startswith(("gross_R_", "partial_hit_", "ambiguous_bars_"))])
+        for c in x.columns:  # halve memory: 32-bit floats are plenty for R, prices and fractions here
+            if x[c].dtype == "float64" and not c.startswith(("entry", "stop", "level", "swept_low", "tp", "exit_price",
+                                                               "range60", "atr")):
+                x[c] = x[c].astype("float32")
+        parts.append(x)
     df = pd.concat(parts, ignore_index=True)
+    del parts
+    if "skipped" in df:
+        df["skipped"] = df["skipped"].fillna("").astype(str).replace({"nan": "", "None": ""})
+    # flags were stored as strings ("True"/"False"/"nan") by u06; restore real booleans
+    for c in df.columns:
+        if df[c].dtype == object:
+            vals = set(df[c].dropna().astype(str).unique())
+            if vals and vals <= {"True", "False", "nan", "None", ""}:
+                df[c] = df[c].astype(str).map({"True": True, "False": False}).fillna(False).astype(bool)
     for c in ("entry_time", "swept_time", "reclaim_time", "sweep_start"):
         if c in df:
             df[c] = pd.to_datetime(df[c], utc=True)
@@ -39,6 +59,12 @@ def load_signals(tag: str = "main") -> pd.DataFrame:
 def enrich(df: pd.DataFrame, cfg) -> pd.DataFrame:
     """Add regime, filter flags, tiers, risk multipliers and leverage needs."""
     df = df[df["skipped"].fillna("") == ""].copy()
+    # T4 = TradeFi contracts above the liquidity floor on WEEX; the rest are reported as "T4pool"
+    u = pd.read_csv(config.ROOT / "reports" / "universe.csv", keep_default_na=False)
+    vol = pd.to_numeric(u.set_index("symbol")["median_daily_vol_30d_usd"], errors="coerce")
+    liquid = set(vol[vol >= cfg.universe.liquidity_floor_usd].index)
+    tf = (df["asset_class"] != "crypto")
+    df.loc[tf, "tier"] = np.where(df.loc[tf, "weex_symbol"].isin(liquid), "T4", "T4pool")
     st = binance.Store(config.data_dir(cfg))
     btc = st.load("BTCUSDT", "1d")
     bull = btc_regime(btc, cfg.filters.regime_flip_days)

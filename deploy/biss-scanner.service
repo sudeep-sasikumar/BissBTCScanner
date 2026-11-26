@@ -1,0 +1,21 @@
+# systemd unit for the PAPER scanner on the VPS (Hostinger KL). Install:
+#   sudo cp deploy/biss-scanner.service /etc/systemd/system/
+#   sudo cp deploy/scanner.env.example /etc/biss-scanner.env && sudo chmod 600 /etc/biss-scanner.env   # fill in token
+#   sudo systemctl daemon-reload && sudo systemctl enable --now biss-scanner
+#   journalctl -u biss-scanner -f
+[Unit]
+Description=BissBTC HTF sweep scanner (paper alerts only, no orders)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/BissBTCScanner
+EnvironmentFile=/etc/biss-scanner.env
+ExecStart=/opt/BissBTCScanner/.venv/bin/python -m biss.scanner.live
+Restart=always
+RestartSec=30
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

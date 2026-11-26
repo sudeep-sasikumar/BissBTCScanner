@@ -26,7 +26,7 @@ levels:
   merge_pct: 0.005
   location_pct: 0.25             # long level in bottom 25% of prior range (mirror for shorts)
   location_lookback_days: 60
-  max_level_dist_pct: 0.15       # only consider levels within 15% of price (search window)
+  max_level_dist_pct: 0.50       # levels within 50% of the prior close (one-day capitulations: ZEC 5 Jun 2026 fell 46%)
 
 sweep:
   min_atr4h: 0.3                 # sweep_min = 0.3 * ATR(4h)
@@ -100,5 +100,15 @@ validation:
 
 scanner:
   poll_seconds: 60
-  state_db: data/scanner_state.sqlite
+  state_file: data/scanner_state.json
+  # Only tiers that passed section 8 go here (see reports/backtest.md). Until a tier passes, keep this list
+  # small and treat every alert as observation only.
+  symbols: [BTCUSDT, ETHUSDT, SOLUSDT, HYPEUSDT, ZECUSDT]
+  top_n_by_weex_volume: 0        # >0 adds the top-N WEEX crypto perps by 24h volume
+  reclaim: R1
+  entry: E1
+  shorts: false
+  paper_equity: 10000
+  required_filters: [F1_regime, F2_drawdown, F3_fomc, F3_qclose, F4_location, stop_max, min_rr]
+  alert_failed_filters: false    # true = also send near-misses, marked "FILTERS FAILED - info only"
   # Telegram token / chat id come from env: BISS_TG_TOKEN, BISS_TG_CHAT. Never hard-code.

@@ -60,8 +60,9 @@ def simulate(trades: pd.DataFrame, risk_pct: float, cfg, brackets: dict, mode: s
             if p["j"] is not None:
                 p["j"]["closed_balance_after"] = bal
 
+    recs = tr.to_dict("records")
     for i in order:
-        r = tr.iloc[i]
+        r = recs[i]
         close_until(et[i])
         if bal <= 1e-6:
             skipped["bust"] = skipped.get("bust", 0) + 1
@@ -103,7 +104,7 @@ def simulate(trades: pd.DataFrame, risk_pct: float, cfg, brackets: dict, mode: s
             pnl = float(r["R"]) * s["risk_usd"]
         j = None
         if keep_journal:
-            j = {"idx": int(r.name) if "sig_id" not in r else r["sig_id"], "coin": r["base"], "entry_date": r["entry_time"],
+            j = {"coin": r["base"], "symbol": r["symbol"], "entry_date": r["entry_time"],
                  "entry": r["entry"], "stop": r["stop"], "stop_pct": r["stop_pct"], "target": r["tp2"],
                  "leverage": round(s["lev"], 2), "margin_usd": round(s["margin"], 2),
                  "result": "liquidated" if liquidated else r["outcome"], "exit_date": r["exit_time"],

@@ -15,7 +15,7 @@ from typing import Callable
 
 import numpy as np
 
-from .setups import NS_D, Bars, _first
+from .setups import NS_D, Bars
 
 MGMT = ("partial_1r_be", "fixed_2r", "fixed_3r", "partial_tp1", "trail_4h_hl", "time_stop", "close_below_exit")
 
@@ -35,24 +35,44 @@ def targets_for(mgmt: str, entry: float, R: float, tp1: float, tp2: float) -> li
     raise ValueError(mgmt)
 
 
+def _scan(arr: np.ndarray, v: float, k: int, le: bool) -> int:
+    """first index >= k with arr <= v (le) or arr >= v; chunked so early hits stay cheap."""
+    n = len(arr)
+    step = 256
+    while k < n:
+        seg = arr[k: k + step]
+        idx = np.flatnonzero(seg <= v if le else seg >= v)
+        if len(idx):
+            return k + int(idx[0])
+        k += step
+        step = min(step * 4, 1 << 16)
+    return -1
+
+
 def trail_updates(b: Bars, ke: int, entry: float, stop: float, pivot: int = 2, atr_mult: float = 0.25):
     """(15m index from which the new stop applies, new stop) for each confirmed 4h higher low after entry."""
-    is4 = np.nonzero(b.is4h)[0]
-    is4 = is4[is4 > ke]
+    is4 = np.flatnonzero(b.is4h[ke + 1:]) + ke + 1
     if len(is4) < 2 * pivot + 1:
         return []
-    starts = np.r_[ke, is4[:-1]] + 1
-    lows = np.array([b.lo[s: e + 1].min() for s, e in zip(starts, is4)])
+    starts = np.r_[ke + 1, is4[:-1] + 1]
+    lows = np.minimum.reduceat(b.lo, starts)[: len(is4)] if starts[-1] < len(b.lo) else \
+        np.array([b.lo[s_: e + 1].min() for s_, e in zip(starts, is4)])
+    m = np.arange(pivot, len(lows) - pivot)
+    if not len(m):
+        return []
+    left = np.min(np.stack([lows[m - i] for i in range(1, pivot + 1)]), axis=0)
+    right = np.min(np.stack([lows[m + i] for i in range(1, pivot + 1)]), axis=0)
+    piv = m[(lows[m] < left) & (lows[m] <= right)]
     out, last_pl, cur = [], -np.inf, stop
-    for m in range(pivot, len(lows) - pivot):
-        if lows[m] < lows[m - pivot: m].min() and lows[m] <= lows[m + 1: m + pivot + 1].min():
-            pl = lows[m]
-            if pl > last_pl:
-                new = pl - atr_mult * (b.atr4[is4[m]] if np.isfinite(b.atr4[is4[m]]) else 0)
-                if new > cur:
-                    out.append((int(is4[m + pivot]) + 1, float(new)))
-                    cur = new
-            last_pl = pl
+    for mm in piv:
+        pl = lows[mm]
+        if pl > last_pl:
+            a4 = b.atr4[is4[mm]]
+            new = pl - atr_mult * (a4 if np.isfinite(a4) else 0)
+            if new > cur:
+                out.append((int(is4[mm + pivot]) + 1, float(new)))
+                cur = new
+        last_pl = pl
     return out
 
 
@@ -75,15 +95,15 @@ def simulate(b: Bars, ke: int, entry: float, stop: float, tp1: float, tp2: float
     trails = trail_updates(b, ke, entry, stop) if mgmt == "trail_4h_hl" else []
     ti = 0
     tstop_k = ke + int(time_stop_days * NS_D // b.bar_ns) if mgmt == "time_stop" else -1
-    cb = np.nonzero(b.isday & (b.c < level))[0] if mgmt == "close_below_exit" else np.array([], int)
-    cb = cb[cb > ke]
+    cb = (np.flatnonzero(b.isday[ke + 1:] & (b.c[ke + 1:] < level)) + ke + 1) if mgmt == "close_below_exit" \
+        else np.array([], int)
     ambiguous = 0
     while f > 1e-9 and k < n:
-        js = _first(b.lo <= s, k)
-        jt = _first(b.h >= tg[0][0], k) if tg else -1
+        js = _scan(b.lo, s, k, True)
+        jt = _scan(b.h, tg[0][0], k, False) if tg else -1
         jtr = trails[ti][0] if ti < len(trails) else -1
         jx = -1
-        if tstop_k >= k and not hit1:
+        if k <= tstop_k < n and not hit1:
             jx = tstop_k
         if len(cb):
             c2 = cb[cb >= k]

@@ -35,11 +35,12 @@ def daily_bars(daily: pd.DataFrame) -> Bars:
 def refined_weekly(sym: str, daily: pd.DataFrame, btc_bull: pd.Series, start: str, fee: float = 0.0005,
                    maker: float | None = None, dd_band=(0.30, 0.50), window_weeks: int = 3,
                    use_regime: bool = True, use_fomc: bool = True, daily_sweep: bool = False,
-                   kinds=("pivot_low", "pivot_high")) -> list[dict]:
+                   kinds=("pivot_low", "pivot_high"), slip: float = 0.0, funding_8h: float = 0.0,
+                   min_move: float = 0.20, earnings: list | None = None) -> list[dict]:
     w = resample(daily, "W")
     if len(w) < 20:
         return []
-    lv = pivots(w, "W", 2, 0.20, 2.5, 10, 52)
+    lv = pivots(w, "W", 2, min_move, 2.5, 10, 52)
     if not lv:
         return []
     lv = pd.DataFrame(lv)
@@ -84,8 +85,12 @@ def refined_weekly(sym: str, daily: pd.DataFrame, btc_bull: pd.Series, start: st
                        "btc_bull": bull, "near_fomc": fomc, "f_dd": ok_dd}
                 if entry <= stop or hi120 <= entry:
                     break
+                ft = fr = None
+                if funding_8h:
+                    ft = np.arange(b.t[ke], b.t[-1] + NS_D, 8 * 3600 * 10**9, dtype=np.int64)
+                    fr = np.full(len(ft), funding_8h)
                 r = simulate(b, ke, entry, stop, entry + (entry - stop), hi120, L, "partial_1r_be", fee,
-                             maker if maker is not None else fee, 0.0)
+                             maker if maker is not None else fee, slip, None, ft, fr)
                 rec.update({k: v for k, v in r.items()})
                 rec["exit_time"] = pd.Timestamp(r["exit_time_ns"], tz="UTC")
                 keep = ok_dd and (not use_regime or not bull) and (not use_fomc or not fomc)
