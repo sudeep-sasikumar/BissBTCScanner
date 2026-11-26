@@ -1,7 +1,8 @@
 """Account simulation (sections 7 and 8.6).
 
 Mode (a): every signal, equal small risk, total open risk <= max_open_risk, <= max_per_cluster concurrent
-positions per correlated cluster, margin must be free. Mode (b): his challenge rule, one position at a time,
+positions per correlated cluster (null = no cap), one position per symbol (and side when
+one_per_symbol_side), margin must be free. Mode (b): his challenge rule, one position at a time,
 first fill wins, 20-50% risk (stress test only).
 
 P&L of a trade = net R x the risk actually taken (R already includes fees, slippage and funding). If the
@@ -79,10 +80,11 @@ def simulate(trades: pd.DataFrame, risk_pct: float, cfg, brackets: dict, mode: s
                 skipped["open_risk_cap"] = skipped.get("open_risk_cap", 0) + 1
                 continue
             cl = r["cluster"]
-            if sum(1 for p in open_ if p["cluster"] == cl) >= sz.max_per_cluster:
+            if sz.get("max_per_cluster") and sum(1 for p in open_ if p["cluster"] == cl) >= sz.max_per_cluster:
                 skipped["cluster_cap"] = skipped.get("cluster_cap", 0) + 1
                 continue
-            if any(p["symbol"] == r["symbol"] for p in open_):
+            per_side = bool(sz.get("one_per_symbol_side"))
+            if any(p["symbol"] == r["symbol"] and (not per_side or p["side"] == r["side"]) for p in open_):
                 skipped["same_symbol"] = skipped.get("same_symbol", 0) + 1
                 continue
         free = bal - sum(p["margin"] for p in open_)
@@ -116,7 +118,7 @@ def simulate(trades: pd.DataFrame, risk_pct: float, cfg, brackets: dict, mode: s
                  "risk_usd": round(s["risk_usd"], 2), "at_cap": s["at_cap"], "shrunk": s["shrunk"]}
             jr.append(j)
         open_.append({"exit": xt[i], "pnl": pnl, "risk": s["risk_usd"], "margin": s["margin"],
-                      "cluster": r["cluster"], "symbol": r["symbol"], "j": j})
+                      "cluster": r["cluster"], "symbol": r["symbol"], "side": r.get("side", "long"), "j": j})
     close_until(np.datetime64("2262-01-01"))
     return {"end": bal, "max_dd": max_dd, "taken": len(levs), "skipped": skipped,
             "cap_hits": cap_hits, "shrunk": shrunk, "avg_lev": float(np.mean(levs)) if levs else 0.0,

@@ -29,11 +29,12 @@ from ..portfolio import cluster_of
 from ..setups import generate
 from ..sizing import lev_cap, mmr_for, size
 from ..tiers import base_of
+from ..universe import STABLE_OR_WRAPPED
 from . import telegram
 
 CHECKLIST = ("Manual checklist before acting: (1) Coinglass liquidation cluster at/under the level? "
-             "(2) BTC context agrees? (3) sweep low not on a weekend / market-closed session? "
-             "(4) not within 7 days of FOMC? (5) stocks: no earnings within 2 sessions?")
+             "(2) BTC context agrees? (3) isolated margin, leverage no higher than shown? "
+             "(4) stop order placed at the stop, never widened?")
 
 
 class Scanner:
@@ -54,17 +55,30 @@ class Scanner:
         sc = self.cfg.scanner
         syms = list(sc.symbols)
         if sc.get("all_contracts"):
-            return [s for s in self.contracts if s.isascii()]
+            return [s for s in self.contracts if s.isascii()
+                    and (not sc.get("crypto_only") or self.contracts[s]["contractType"] == "PERPETUAL")]
         if sc.get("top_n_by_weex_volume"):
             tk = sorted(weex.ticker_24h(), key=lambda x: -float(x.get("quoteVolume") or 0))
             for x in tk:
                 s = x["symbol"]
                 c = self.contracts.get(s)
-                if c and c["contractType"] == "PERPETUAL" and s not in syms:
+                if c and c["contractType"] == "PERPETUAL" and s not in syms and base_of(s) not in STABLE_OR_WRAPPED:
                     syms.append(s)
                 if len(syms) >= sc.top_n_by_weex_volume:
                     break
         return [s for s in syms if s in self.contracts]
+
+    def required(self, side: str) -> list[str]:
+        rf = self.cfg.scanner.required_filters
+        return list(rf[side]) if isinstance(rf, dict) else list(rf)
+
+    def equity(self) -> float:
+        """Paper equity = start + realised P&L of closed paper trades (gross of fees)."""
+        return float(self.cfg.scanner.paper_equity) + sum(float(t.get("pnl_usd") or 0) for t in self.state["closed"])
+
+    def open_risk_usd(self) -> float:
+        """Risk still at stake: 0 once the stop is at entry (after the +1R partial)."""
+        return sum(0.0 if t["half_done"] else float(t.get("risk_usd") or 0) for t in self.state["open"])
 
     def save(self) -> None:
         self.state_path.parent.mkdir(parents=True, exist_ok=True)
@@ -132,14 +146,15 @@ class Scanner:
         lo, hi = (f.dd_crypto if asset == "crypto" else f.dd_tradfi)
         flags = {
             "F1_regime": (not bull) or asset != "crypto" or s["side"] == "short",
-            "F2_drawdown": (lo <= s["dd_from_120d"] <= hi) or s["side"] == "short",
+            "F2_drawdown": bool(lo <= s["dd_from_120d"] <= hi),
             "F3_fomc": abs(s["days_to_fomc"]) > f.fomc_days,
             "F3_qclose": s["days_to_qclose"] > f.quarter_close_days,
             "F4_location": bool(s["f_location"]),
             "stop_max": bool(s["f_stop_ok"]),
             "min_rr": bool(s["f_rr_ok"]),
         }
-        strong = s["pivot_tf"] == "M" or (s["pivot_tf"] == "W" and flags["F1_regime"] and flags["F2_drawdown"])
+        wk_ok = flags["F2_drawdown"] and (flags["F1_regime"] if cfg.sizing.get("strong_needs_regime") else True)
+        strong = s["pivot_tf"] == "M" or (s["pivot_tf"] == "W" and wk_ok)
         mult = cfg.sizing.tier_mult.strong if strong else cfg.sizing.tier_mult.weekly_only
         if s["side"] == "short":
             mult *= cfg.sizing.tier_mult.short
@@ -147,37 +162,50 @@ class Scanner:
             mult *= cfg.sizing.tier_mult.tradfi
         caps = dict(cfg.sizing.lev_caps)
         cap = lev_cap(base, "crypto" if asset == "crypto" else "stock", caps, c.get("maxLeverage"))
-        eq = float(cfg.scanner.paper_equity)
+        eq = self.equity()
+        free = eq - sum(float(t.get("margin") or 0) for t in self.state["open"])
         rp = float(cfg.sizing.default_risk) * mult
-        z = size(eq, eq, rp, s["stop_pct"], cap, self.brackets.get(sym), cfg.sizing.liq_buffer_mult)
+        z = size(eq, free, rp, s["stop_pct"], cap, self.brackets.get(sym), cfg.sizing.liq_buffer_mult)
+        open_risk = self.open_risk_usd() / eq if eq > 0 else 1.0
+        risk_cap_ok = open_risk + rp <= float(cfg.sizing.max_open_risk) + 1e-9
         sign = 1 if s["side"] == "long" else -1
         mmr = mmr_for(self.brackets.get(sym), z["notional"])[0]
         liq = s["entry"] * (1 - sign * (1 / z["lev"] - mmr)) if z["lev"] > 0 else float("nan")
         s.update(flags)
+        req = self.required(s["side"])
         s.update({"symbol": sym, "asset_class": asset, "risk_mult": mult, "risk_pct": rp, "size": z, "liq_price": liq,
-                  "weex_max_lev": c.get("maxLeverage"), "btc_bull": bull,
-                  "passes": all(flags[k] for k in cfg.scanner.required_filters), "cluster": cluster_of(base, asset)})
+                  "weex_max_lev": c.get("maxLeverage"), "btc_bull": bull, "lev_cap": cap, "equity": eq,
+                  "tier": "T1" if base in cfg.universe.t1 else "T2", "conviction": "strong" if strong else "weekly_only",
+                  "open_risk_pct": open_risk, "risk_cap_ok": risk_cap_ok, "required": req,
+                  "passes": all(flags[k] for k in req), "cluster": cluster_of(base, asset)})
         return s
 
     def message(self, s: dict) -> str:
         z = s["size"]
         dirw = "LONG" if s["side"] == "long" else "SHORT"
-        fl = " ".join(f"{k}:{'ok' if s[k] else 'FAIL'}" for k in FILTERS)
+        fl = " ".join(f"{k}:{'ok' if s[k] else 'FAIL'}" for k in s["required"])
+        info = " ".join(f"{k}:{'ok' if s[k] else 'no'}" for k in FILTERS if k not in s["required"])
+        cap_line = (f"Open risk {100*s['open_risk_pct']:.1f}% + this {100*s['risk_pct']:.1f}% "
+                    f"(cap {100*self.cfg.sizing.max_open_risk:.0f}%)"
+                    + ("" if s["risk_cap_ok"] else " -> OVER CAP, not taken"))
         return (
-            f"PAPER {dirw} {s['symbol']} ({s['asset_class']})\n"
+            f"PAPER {dirw} {s['symbol']} ({s['tier']} {s['asset_class']})\n"
             f"HTF level {s['level']:g} [{s['level_type']}, TF {s['level_tf']}, {s['level_kinds']}, touches {s['touches']}]\n"
             f"Swept {'low' if s['side']=='long' else 'high'} {s['swept_low']:g} at {pd.Timestamp(s['swept_time']):%a %d %b %H:%M} UTC "
             f"(depth {100*s['sweep_depth_pct']:.2f}%, {s['sweep_depth_atr4h']:.2f} ATR4h)\n"
             f"Reclaim {pd.Timestamp(s['reclaim_time']):%d %b %H:%M} UTC on {s['reclaim_variant']} ({self.cfg.scanner.entry})\n"
             f"Entry ~{s['entry']:g} (range {s['entry']*(1-0.002):g}-{s['entry']*(1+0.002):g})\n"
             f"Stop {s['stop']:g} ({100*s['stop_pct']:.2f}%)  TP1 {s['tp1_eff']:g}  TP2 {s['tp2']:g}  R:R(TP2) {s['rr_tp2']:.2f}\n"
-            f"Risk tier x{s['risk_mult']:.2f} -> {100*s['risk_pct']:.2f}% of ${self.cfg.scanner.paper_equity:,.0f}: "
-            f"size ${z['notional']:,.0f}, margin ${z['margin']:,.0f}, implied lev {z['lev']:.1f}x "
-            f"(needed {z['need_lev']:.1f}x, WEEX max {s['weex_max_lev']}x)\n"
+            f"Risk {s['conviction']} x{s['risk_mult']:.2f} -> {100*s['risk_pct']:.2f}% of ${s['equity']:,.0f} "
+            f"(${z['risk_usd']:,.2f}): size ${z['notional']:,.0f}, margin ${z['margin']:,.0f} isolated, "
+            f"lev {z['lev']:.1f}x (liq-safe max {z['need_lev']:.1f}x, cap {s['lev_cap']:g}x, WEEX max {s['weex_max_lev']}x)"
+            f"{' - size cut to fit margin' if z['shrunk'] else ''}\n"
+            f"{cap_line}\n"
             f"Liq price ~{s['liq_price']:g} vs stop {s['stop']:g}\n"
             f"Plan: 50% off at +1R ({s['entry'] + (1 if s['side']=='long' else -1)*abs(s['entry']-s['stop']):g}), stop to entry, rest to TP2.\n"
             f"Invalidation: 15m trade beyond {s['stop']:g}; no early exit on a close back through the level.\n"
-            f"Filters: {fl} | BTC bull regime: {s['btc_bull']}\n"
+            f"Required filters ({s['side']}): {fl}\n"
+            f"Info only: {info} | BTC bull regime: {s['btc_bull']}\n"
             f"{CHECKLIST}"
         )
 
@@ -214,8 +242,10 @@ class Scanner:
             if t["remaining"] <= 0:
                 R = sum(q * sign * (px - t["entry"]) for _, q, px in t["legs"]) / abs(t["entry"] - t["stop_orig"])
                 t["R_gross"] = R
+                t["pnl_usd"] = R * float(t.get("risk_usd") or 0)
                 self.state["closed"].append(t)
-                telegram.send(f"PAPER CLOSED {t['side'].upper()} {t['symbol']}: {R:+.2f}R gross "
+                telegram.send(f"PAPER CLOSED {t['side'].upper()} {t['symbol']}: {R:+.2f}R gross, "
+                              f"${t['pnl_usd']:+,.2f} (paper equity ${self.equity():,.2f}) "
                               f"(entered {t['entry']:g}, legs {t['legs']})")
             else:
                 still.append(t)
@@ -242,13 +272,18 @@ class Scanner:
                     # one position per symbol and side, as in the backtest
                     if s["passes"] and any(o["symbol"] == sym and o["side"] == s["side"] for o in self.state["open"]):
                         continue
-                    telegram.send(("" if s["passes"] else "[FILTERS FAILED - info only]\n") + self.message(s))
-                    if s["passes"]:
+                    tag = "" if s["passes"] else "[FILTERS FAILED - info only]\n"
+                    if s["passes"] and not s["risk_cap_ok"]:
+                        tag = "[OPEN-RISK CAP - not taken]\n"
+                    telegram.send(tag + self.message(s))
+                    if s["passes"] and s["risk_cap_ok"]:
                         self.state["open"].append({
                             "symbol": sym, "side": s["side"], "entry": s["entry"], "stop": s["stop"],
                             "stop_orig": s["stop"], "tp2": s["tp2"], "entry_time": str(s["entry_time"]),
                             "last_bar": str(pd.Timestamp(s["entry_time"]) - pd.Timedelta(minutes=15)),
-                            "remaining": 1.0, "half_done": False, "legs": []})
+                            "remaining": 1.0, "half_done": False, "legs": [],
+                            "risk_usd": s["size"]["risk_usd"], "margin": s["size"]["margin"],
+                            "lev": s["size"]["lev"], "risk_pct": s["risk_pct"]})
             except Exception:  # noqa: BLE001
                 print("scan fail", sym, traceback.format_exc()[-300:], flush=True)
         self.track()
@@ -264,6 +299,8 @@ def main() -> None:
     cfg = config.load(a.config)
     sc = Scanner(cfg)
     print(f"paper scanner: {len(sc.symbols)} symbols, reclaim {cfg.scanner.reclaim}/{cfg.scanner.entry}, "
+          f"shorts {cfg.scanner.shorts}, risk {cfg.sizing.default_risk:.0%} base, open-risk cap "
+          f"{cfg.sizing.max_open_risk:.0%}, paper equity ${sc.equity():,.2f}, "
           f"telegram {'on' if telegram.configured() else 'OFF (printing)'}", flush=True)
     if a.once:
         sc.poll()

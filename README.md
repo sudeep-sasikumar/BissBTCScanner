@@ -49,3 +49,12 @@ journalctl -u biss-scanner -f
 - What it scans is set in `config.yaml → scanner` (symbols, reclaim/entry variant, required filters, paper equity). It works once per closed 15m bar.
 - Each alert has the level, sweep, reclaim, entry, stop %, TP1/TP2, R:R, risk tier, size, implied and WEEX max leverage, liquidation price vs stop, invalidation, filter results and the manual checklist. Open paper trades are followed to their exit and a close message is sent.
 - Only tiers that passed section 8 belong in `scanner.symbols`; see the verdict in `reports/backtest.md`.
+- Current profile (26 Nov 2026): R3w / E2 on T1 + T2 crypto (T1 list plus the top 50 WEEX crypto perps by
+  24h volume, no TradeFi), longs and shorts. Sweep minimum 0.3 x ATR(4h), weekend sweeps skipped.
+  Long filters: F2 drawdown, FOMC ±7 days, quarter close ±3 days, F4 location, stop ≤ 12%. Short filters: the
+  same without F2. Risk 10% of paper equity x conviction (monthly level, or weekly level with F2 in band = 1.0x,
+  otherwise 0.6x; shorts x0.5), total open risk ≤ 60%, no per-cluster cap, one position per coin per side,
+  leverage caps 10x T1 / 5x T2, isolated margin. Paper equity follows closed paper trades.
+- With the liquidation 1 stop-distance beyond the stop, margin is at least about 2.1x the risk, so at 10% risk
+  free margin runs out after 4–5 full-size positions (about 45–50% open risk), before the 60% cap is reached.
+  When margin is short the size is cut, never the stop widened.

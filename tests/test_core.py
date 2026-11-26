@@ -113,3 +113,44 @@ def test_zone_merge_prefers_monthly_pivot():
     ls = LevelSet(df)
     z = ls.zone_of(100.0, ls.active(pd.Timestamp("2025-06-01", tz="UTC").value), 0.005)
     assert z["price"] == 100.3 and z["members"] == 2 and z["pivot_tf"] == "M"
+
+
+def _trade(sym, side, t0, t1, risk_mult=1.0, stop_pct=0.08):
+    return {"symbol": sym, "side": side, "entry_time": pd.Timestamp(t0, tz="UTC"),
+            "exit_time": pd.Timestamp(t1, tz="UTC"), "risk_mult": risk_mult, "stop_pct": stop_pct, "lev_cap": 10.0,
+            "weex_symbol": sym, "cluster": "crypto_alts", "R": 1.0, "mae_frac": 0.0, "fees_frac": 0.0,
+            "base": sym[:-4], "entry": 1.0, "stop": 0.92, "tp2": 1.2, "outcome": "tp2", "exit_price": 1.2,
+            "asset_class": "crypto", "tier": "T2", "level_tf": "W", "reclaim_variant": "R3w", "funding_frac": 0.0}
+
+
+def test_portfolio_no_cluster_cap_open_risk_cap_one_per_side():
+    from biss.portfolio import simulate as psim
+    cfg = config.load()
+    assert cfg.sizing.max_open_risk == pytest.approx(0.60) and cfg.sizing.get("max_per_cluster") is None
+    eight = pd.DataFrame([_trade(f"C{i}USDT", "long", "2025-01-01", "2025-02-01") for i in range(8)])
+    # 2% risk each: all 8 in one cluster are taken (the old cap was 3 per cluster)
+    assert psim(eight, 0.02, cfg, {}, "a")["taken"] == 8
+    # open-risk cap: 25% cap, 10% risk per trade -> 2 open
+    res = psim(eight, 0.10, cfg.override(**{"sizing.max_open_risk": 0.25}), {}, "a")
+    assert res["taken"] == 2 and res["skipped"]["open_risk_cap"] == 6
+    # at 10% risk margin binds before the 60% cap: margin >= ~2.1x risk when liq sits 1 stop beyond the stop
+    res = psim(eight, 0.10, cfg, {}, "a")
+    assert res["taken"] == 5 and "open_risk_cap" not in res["skipped"]
+    same = pd.DataFrame([_trade("C0USDT", "long", "2025-01-01", "2025-02-01"),
+                         _trade("C0USDT", "short", "2025-01-02", "2025-02-01", 0.5),
+                         _trade("C0USDT", "long", "2025-01-03", "2025-02-01")])
+    res2 = psim(same, 0.02, cfg, {}, "a")
+    # a long and a short on the same coin may both be open; a second long may not
+    assert res2["taken"] == 2 and res2["skipped"]["same_symbol"] == 1
+
+
+def test_scanner_profile_in_config():
+    cfg = config.load()
+    sc = cfg.scanner
+    assert sc.reclaim == "R3w" and sc.entry == "E2" and sc.shorts and not sc.all_contracts
+    assert list(sc.required_filters["long"]) == ["F2_drawdown", "F3_fomc", "F3_qclose", "F4_location", "stop_max"]
+    assert list(sc.required_filters["short"]) == ["F3_fomc", "F3_qclose", "F4_location", "stop_max"]
+    assert cfg.sweep.min_atr4h == pytest.approx(0.3) and cfg.sweep.skip_weekend and cfg.filters.fomc_days == 7
+    assert cfg.sizing.default_risk == pytest.approx(0.10)
+    caps = cfg.sizing.lev_caps
+    assert all(caps[b] == 10 for b in cfg.universe.t1) and caps["crypto"] == 5

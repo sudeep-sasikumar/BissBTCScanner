@@ -85,7 +85,8 @@ def enrich(df: pd.DataFrame, cfg) -> pd.DataFrame:
     split = pd.Timestamp(cfg.validation.split_date, tz="UTC")
     df["slice"] = np.where(df["holdout"], "HO", np.where(df["entry_time"] < split, "IS", "OOS"))
     df["year"] = df["entry_time"].dt.year
-    strong = (df["pivot_tf"] == "M") | ((df["pivot_tf"] == "W") & df["F1_regime"] & df["F2_drawdown"])
+    wk_ok = df["F2_drawdown"] & (df["F1_regime"] if cfg.sizing.get("strong_needs_regime") else True)
+    strong = (df["pivot_tf"] == "M") | ((df["pivot_tf"] == "W") & wk_ok)
     mult = np.where(strong, cfg.sizing.tier_mult.strong, cfg.sizing.tier_mult.weekly_only)
     mult = np.where(df["side"] == "short", mult * cfg.sizing.tier_mult.short, mult)
     mult = np.where(tradfi, mult * cfg.sizing.tier_mult.tradfi, mult)

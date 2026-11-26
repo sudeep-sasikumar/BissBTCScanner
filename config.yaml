@@ -29,10 +29,10 @@ levels:
   max_level_dist_pct: 0.50       # levels within 50% of the prior close (one-day capitulations: ZEC 5 Jun 2026 fell 46%)
 
 sweep:
-  min_atr4h: 0.0                 # any trade below the level counts (was 0.3 * ATR(4h); user choice 26 Nov)
+  min_atr4h: 0.3                 # sweep_min = 0.3 * ATR(4h)
   max_atr1d: 1.5                 # sweep_max = 1.5 * ATR(daily) -> acceptance
   max_days_below: 3              # daily closes below level -> acceptance
-  skip_weekend: false            # weekend sweeps trigger too (user choice 26 Nov; was true)
+  skip_weekend: true             # sweeps made on a weekend don't trigger
   atr_len: 14
 
 reclaim:
@@ -68,7 +68,7 @@ filters:
   dd_crypto: [0.30, 0.50]        # 30-50% below 120-day high
   dd_tradfi: [0.10, 0.30]
   dd_lookback_days: 120
-  fomc_days: 2                   # +-2 days of an FOMC decision (user choice 26 Nov; was 7)
+  fomc_days: 7                   # +-7 days of an FOMC decision
   quarter_close_days: 3
   earnings_sessions: 2
 
@@ -79,13 +79,16 @@ universe:
   rank_lookback_days: 30
 
 sizing:
-  risk_pct: [0.02, 0.03, 0.04, 0.05]
-  default_risk: 0.03
-  lev_caps: {BTC: 10, ETH: 10, crypto: 5, tradfi: 3}
+  risk_pct: [0.02, 0.03, 0.04, 0.05, 0.10]
+  default_risk: 0.10              # base risk per trade, scaled by tier_mult (strategy of 26 Nov)
+  lev_caps: {BTC: 10, ETH: 10, HYPE: 10, SOL: 10, ZEC: 10, crypto: 5, tradfi: 3}   # T1 10x, T2 5x
   liq_buffer_mult: 1.0           # liq price beyond stop by >= 1x stop distance
+  # strong = monthly level, or weekly level with F2 drawdown in band (no BTC regime term)
   tier_mult: {strong: 1.0, weekly_only: 0.6, short: 0.5, tradfi: 0.5}
-  max_open_risk: 0.20
-  max_per_cluster: 3
+  strong_needs_regime: false     # true = old rule (weekly level also needed F1 BTC regime)
+  max_open_risk: 0.60            # total open risk <= 60% of equity
+  max_per_cluster: null          # null = no per-cluster position cap
+  one_per_symbol_side: true      # one position per coin per side (false = per coin)
   challenge_risk: [0.20, 0.50]   # mode (b), stress test only
 
 costs:
@@ -99,20 +102,24 @@ validation:
   seed: 7
 
 scanner:
+  # PAPER ALERTS ONLY. Strategy of 26 Nov 2026 (user spec): R3w / E2, T1 + T2 crypto, longs and shorts.
+  # User-supplied backtest reference (Oct 2022 - Nov 2026, $1,000, 200 orderings): 462 signals,
+  # median end $25,737, worst-10% $15,077, median max drawdown 55%.
   poll_seconds: 60
   state_file: data/scanner_state.json
-  # Only tiers that passed section 8 go here (see reports/backtest.md). Until a tier passes, keep this list
-  # small and treat every alert as observation only.
-  symbols: [BTCUSDT, ETHUSDT, SOLUSDT, HYPEUSDT, ZECUSDT]
-  top_n_by_weex_volume: 0        # used only when all_contracts is false
-  all_contracts: true            # every WEEX contract, crypto and TradeFi (no volume filter)
-  reclaim: R3w                   # validated variant (reports/final.md); R1 15m failed out-of-sample
-  entry: E2
+  symbols: [BTCUSDT, ETHUSDT, SOLUSDT, HYPEUSDT, ZECUSDT]   # T1
+  top_n_by_weex_volume: 50       # T1 + the rest of the top 50 WEEX crypto perps by 24h volume = T2
+  all_contracts: false           # true = every WEEX contract incl. TradeFi
+  crypto_only: true              # no TradeFi
+  tiers: [T1, T2]                # used by scripts/u11_profile.py
+  reclaim: R3w                   # weekly close back above the swept weekly/monthly level
+  entry: E2                      # first 15m pullback that holds the level
   shorts: true
-  paper_equity: 10000
-  required_filters: [F3_fomc, F3_qclose, stop_max]   # user profile (26 Nov). Alerts still show every filter.
-  # Validated profile (reports/final.md): [F2_drawdown, F3_fomc, F3_qclose, F4_location, stop_max] with
-  # fomc_days 7, min_atr4h 0.3, skip_weekend true, liquidity_floor_usd 20000000, all_contracts false,
-  # top_n_by_weex_volume 50, shorts false.
+  paper_equity: 1000
+  required_filters:              # per side; alerts still show every filter
+    long: [F2_drawdown, F3_fomc, F3_qclose, F4_location, stop_max]
+    short: [F3_fomc, F3_qclose, F4_location, stop_max]
+  # Previous user profile (26 Nov, reports/profile_v2.md): all contracts, both sides [F3_fomc, F3_qclose,
+  # stop_max], fomc_days 2, min_atr4h 0, skip_weekend false.
   alert_failed_filters: false    # true = also send near-misses, marked "FILTERS FAILED - info only"
   # Telegram token / chat id come from env: BISS_TG_TOKEN, BISS_TG_CHAT. Never hard-code.
