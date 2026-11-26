@@ -83,9 +83,9 @@ sizing:
   default_risk: 0.10              # base risk per trade, scaled by tier_mult (strategy of 26 Nov)
   lev_caps: {BTC: 10, ETH: 10, HYPE: 10, SOL: 10, ZEC: 10, crypto: 5, tradfi: 3}   # T1 10x, T2 5x
   liq_buffer_mult: 1.0           # liq price beyond stop by >= 1x stop distance
-  # strong = monthly level, or weekly level with F2 drawdown in band (no BTC regime term)
+  # strong = monthly level, or weekly level with F2 drawdown in band and F1 passing (BTC regime term)
   tier_mult: {strong: 1.0, weekly_only: 0.6, short: 0.5, tradfi: 0.5}
-  strong_needs_regime: false     # true = old rule (weekly level also needed F1 BTC regime)
+  strong_needs_regime: true      # weekly level needs F2 AND F1 (BTC not in its bull regime) for 1.0x (user choice 26 Nov)
   max_open_risk: 0.60            # total open risk <= 60% of equity
   max_per_cluster: null          # null = no per-cluster position cap
   one_per_symbol_side: true      # one position per coin per side (false = per coin)
@@ -104,8 +104,8 @@ validation:
 scanner:
   # PAPER ALERTS ONLY. Strategy of 26 Nov 2026 (user spec): R3w / E2, T1 + T2 crypto, longs and shorts.
   # Backtest (scripts/u12_strategy.py main 200 -> reports/strategy.md; $1,000, 200 orderings): 462 signals,
-  # median end $21,958, worst-10% $14,133, median max drawdown 62%. With sizing.strong_needs_regime: true
-  # (weekly level also needs F1 for 1.0x): $26,011 / $16,882 / 57% (the user's reference $25,737 / $15,077 / 55%).
+  # median end $26,011, worst-10% $16,882, median max drawdown 57%. Without the regime term
+  # (sizing.strong_needs_regime: false): $21,958 / $14,133 / 62%. User's reference: $25,737 / $15,077 / 55%.
   poll_seconds: 60
   state_file: data/scanner_state.json
   symbols: [BTCUSDT, ETHUSDT, SOLUSDT, HYPEUSDT, ZECUSDT]   # T1

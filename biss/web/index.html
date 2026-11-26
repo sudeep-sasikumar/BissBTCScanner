@@ -383,7 +383,7 @@ function renderStrategy(p) {
     `<div class="panel"><b>Filters, longs</b>${li(fl(rf.long || rf))}</div>` +
     `<div class="panel"><b>Filters, shorts</b>${li(fl(rf.short || rf))}</div>` +
     `<div class="panel"><b>Risk and sizing</b>${li([`Base risk ${pct(p.risk, 0)} of equity per trade`,
-      `Conviction: monthly level, or weekly level with F2 in band = ${p.tier_mult?.strong}x; otherwise ${p.tier_mult?.weekly_only}x; shorts × ${p.tier_mult?.short}`,
+      `Conviction: monthly level, or weekly level with F2 in band${p.strong_needs_regime ? " and BTC not in its bull regime (F1)" : ""} = ${p.tier_mult?.strong}x; otherwise ${p.tier_mult?.weekly_only}x; shorts × ${p.tier_mult?.short}`,
       `Total open risk ≤ ${pct(p.max_open_risk, 0)}; ${p.max_per_cluster ? "≤ " + p.max_per_cluster + " per cluster" : "no per-cluster cap"}; one position per coin per side`,
       `Size = risk $ / stop %; leverage is the output; liquidation at least ${p.liq_buffer_mult} stop-distance beyond the stop`,
       `Leverage caps: ${caps}. If more is needed the size is cut, never the stop widened. Isolated margin.`])}</div>` +

@@ -4,9 +4,9 @@ Scanner profile in config.yaml: R3w/E2, tiers ['T1', 'T2'], filters {'long': ['F
 
 Signals 462 (233 long, 229 short), 2022-10-10 to 2026-11-09.
 
-$1,000 start: median end $21,958, worst 10% $14,133, best 10% $35,166; median max drawdown 62% (worst 10% 65%); median trades taken 352.
+$1,000 start: median end $26,011, worst 10% $16,882, best 10% $42,807; median max drawdown 57% (worst 10% 61%); median trades taken 358.
 
-Median route: end $22,072, max drawdown 65%, taken 352, skipped {'no_margin': 110}, Sharpe 1.18, Sortino 3.05, CAGR 111%.
+Median route: end $26,021, max drawdown 59%, taken 367, skipped {'no_margin': 95}, Sharpe 1.20, Sortino 3.45, CAGR 120%.
 
 ## Per side and tier
 

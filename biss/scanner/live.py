@@ -184,7 +184,9 @@ class Scanner:
             "stop_max": bool(s["f_stop_ok"]),
             "min_rr": bool(s["f_rr_ok"]),
         }
-        wk_ok = flags["F2_drawdown"] and (flags["F1_regime"] if cfg.sizing.get("strong_needs_regime") else True)
+        # conviction uses the backtest's F1 (analysis.enrich): BTC not in its bull regime, no exemption for shorts
+        regime_ok = (not bull) or asset != "crypto"
+        wk_ok = flags["F2_drawdown"] and (regime_ok if cfg.sizing.get("strong_needs_regime") else True)
         strong = s["pivot_tf"] == "M" or (s["pivot_tf"] == "W" and wk_ok)
         mult = cfg.sizing.tier_mult.strong if strong else cfg.sizing.tier_mult.weekly_only
         if s["side"] == "short":

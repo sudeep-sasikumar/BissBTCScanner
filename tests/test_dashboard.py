@@ -41,3 +41,22 @@ def test_login_required_and_backtest_served(tmp_path):
                 bt = await b.json()
                 assert bt["summary"]["signals"] > 0 and len(bt["trades"]) == bt["summary"]["route_taken"]
     asyncio.run(run())
+
+
+def test_scanner_conviction_needs_btc_regime(monkeypatch):
+    import pandas as pd
+    from biss.scanner import live
+    cfg = config.load()
+    assert cfg.sizing.strong_needs_regime
+    s = live.Scanner.__new__(live.Scanner)
+    s.cfg, s.brackets, s._recent = cfg, {}, {}
+    s.state = {"alerted": [], "open": [], "closed": []}
+    s.contracts = {"DOGEUSDT": {"contractType": "PERPETUAL", "maxLeverage": 50}}
+    sig = dict(side="long", pivot_tf="W", dd_from_120d=0.35, days_to_fomc=-20, days_to_qclose=30, f_location=True,
+               f_stop_ok=True, f_rr_ok=True, stop_pct=0.05, entry=1.0)
+    for bull, mult in ((False, 1.0), (True, 0.6)):
+        s.daily = {"BTCUSDT": pd.DataFrame({"close": [1.0, 1.0]})}
+        monkeypatch.setattr(live, "btc_regime", lambda d, n, b=bull: pd.Series([b, b]))
+        assert s.enrich("DOGEUSDT", dict(sig))["risk_mult"] == mult
+    short = s.enrich("DOGEUSDT", dict(sig, side="short"))       # bull regime: weekly short is 0.6 x 0.5
+    assert short["risk_mult"] == 0.3

@@ -75,6 +75,7 @@ def profile(cfg) -> dict:
             "max_days_below": sw.max_days_below, "fomc_days": f.fomc_days, "quarter_close_days": f.quarter_close_days,
             "dd_crypto": list(f.dd_crypto), "max_stop_pct": cfg.stop.max_stop_pct, "buffer_atr4h": cfg.stop.buffer_atr4h,
             "buffer_pct": cfg.stop.buffer_pct, "risk": sz.default_risk, "tier_mult": dict(sz.tier_mult),
+            "strong_needs_regime": bool(sz.get("strong_needs_regime")),
             "max_open_risk": sz.max_open_risk, "max_per_cluster": sz.get("max_per_cluster"),
             "lev_caps": dict(sz.lev_caps), "liq_buffer_mult": sz.liq_buffer_mult, "paper_equity": sc.paper_equity}
 
