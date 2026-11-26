@@ -67,6 +67,11 @@ class Scanner:
     def __init__(self, cfg):
         self.cfg = cfg
         self._recent: dict[str, list[dict]] = {}
+        # research data capture (biss/collect): read-only copies of what each scan computed
+        self._full: dict[str, list[dict]] = {}
+        self._skipped: dict[str, list[dict]] = {}
+        self.collector = None
+        self.started_ms = int(time.time() * 1000)
         sc = cfg.scanner
         self.state_path = config.ROOT / sc.state_file
         self.state = json.loads(self.state_path.read_text(encoding="utf-8")) if self.state_path.exists() else \
@@ -106,6 +111,14 @@ class Scanner:
     def open_risk_usd(self) -> float:
         """Risk still at stake: 0 once the stop is at entry (after the +1R partial)."""
         return sum(0.0 if t["half_done"] else float(t.get("risk_usd") or 0) for t in self.state["open"])
+
+    def _ev(self, kind: str, symbol: str | None, detail) -> None:
+        """Research log only (biss/collect); never affects scanning."""
+        if self.collector is not None:
+            try:
+                self.collector.event(kind, symbol, detail)
+            except Exception:  # noqa: BLE001
+                pass
 
     def save(self) -> None:
         self.state_path.parent.mkdir(parents=True, exist_ok=True)
@@ -161,8 +174,11 @@ class Scanner:
                        sides=(1, -1) if cfg.scanner.shorts else (1,))
         if sig.empty:
             return []
-        sig = sig[sig.skipped.fillna("") == ""]
+        sk = sig.skipped.fillna("") != ""
+        self._skipped[sym] = [dict(r.to_dict(), symbol=sym) for _, r in sig[sk].iterrows()]
+        sig = sig[~sk]
         out = [self.enrich(sym, r.to_dict()) for _, r in sig.iterrows()]
+        self._full[sym] = out
         self._recent[sym] = [compact(s) for s in out]          # every setup in the 15m window, for the dashboard
         return [s for s in out if pd.Timestamp(s["entry_time"]) > since]
 
@@ -279,6 +295,7 @@ class Scanner:
                 t["R_gross"] = R
                 t["pnl_usd"] = R * float(t.get("risk_usd") or 0)
                 self.state["closed"].append(t)
+                self._ev("paper_close", t["symbol"], t)
                 telegram.send(f"PAPER CLOSED {t['side'].upper()} {t['symbol']}: {R:+.2f}R gross, "
                               f"${t['pnl_usd']:+,.2f} (paper equity ${self.equity():,.2f}) "
                               f"(entered {t['entry']:g}, legs {t['legs']})")
@@ -317,6 +334,12 @@ class Scanner:
                                                 "status": "taken" if s["passes"] and s["risk_cap_ok"] else
                                                 ("over open-risk cap" if s["passes"] else "filters failed")})
                     del alerts[:-500]
+                    self._ev("alert", sym, alerts[-1])
+                    if self.collector is not None:
+                        try:
+                            self.collector._book_async(sym, "alert")
+                        except Exception:  # noqa: BLE001
+                            pass
                     if s["passes"] and s["risk_cap_ok"]:
                         self.state["open"].append({
                             "symbol": sym, "side": s["side"], "entry": s["entry"], "stop": s["stop"],
@@ -327,6 +350,7 @@ class Scanner:
                             "lev": s["size"]["lev"], "risk_pct": s["risk_pct"], "tp1": s["tp1_eff"],
                             "level": s["level"], "tier": s["tier"], "conviction": s["conviction"],
                             "notional": s["size"]["notional"], "liq_price": s["liq_price"]})
+                        self._ev("paper_open", sym, self.state["open"][-1])
             except Exception:  # noqa: BLE001
                 failed.append(sym)
                 print("scan fail", sym, traceback.format_exc()[-300:], flush=True)
@@ -342,6 +366,11 @@ class Scanner:
                                 "open_risk_pct": self.open_risk_usd() / self.equity() if self.equity() > 0 else None}
         self.state["last_poll"] = str(now)
         self.save()
+        if self.collector is not None:            # research data only; errors are logged, never raised
+            try:
+                self.collector.after_poll(self, now, bar, time.time() - t0, failed)
+            except Exception:  # noqa: BLE001
+                print("collector failed", traceback.format_exc()[-300:], flush=True)
 
 
 def main() -> None:

@@ -17,6 +17,8 @@ import hmac
 import json
 import os
 import secrets
+import sqlite3
+import tempfile
 import threading
 import time
 from pathlib import Path
@@ -103,6 +105,49 @@ def snapshot(cfg) -> dict:
             "profile": profile(cfg), "error": st.get("error")}
 
 
+def db_path(cfg) -> Path:
+    return config.ROOT / ((cfg.get("collect") or {}).get("db_path") or "data/biss.sqlite")
+
+
+def collect_snapshot(cfg) -> dict:
+    """What the research collector has stored (Data tab). Read-only."""
+    from .collect import db as cdb
+    p = db_path(cfg)
+    if not p.exists():
+        return {"exists": False}
+    conn = cdb.connect(p, readonly=True)
+    try:
+        def q(sql, args=()):
+            return [dict(r) for r in conn.execute(sql, args).fetchall()]
+        last_col = {"setups": "first_seen", "setup_tracks": "updated", "bars_15m": "t", "bars_1d": "t",
+                    "market_snap": "ts", "deriv_snap": "ts", "book_snap": "ts", "liquidations": "ts",
+                    "universe_snap": "day", "scans": "ts", "events": "ts"}
+        tables = []
+        for t in cdb.TABLES:
+            r = q(f"SELECT COUNT(*) n, MAX({last_col[t]}) last FROM {t}")[0]
+            tables.append({"table": t, "rows": r["n"], "last": r["last"]})
+        groups = q("""SELECT CASE WHEN s.skipped!='' THEN 'skipped' WHEN s.passes=1 THEN 'passes' ELSE 'fails filters' END g,
+                       COUNT(*) n, SUM(t.done) done, AVG(t.r_partial_be) r, AVG(t.r_partial_be > 0) win,
+                       AVG(t.mfe_r) mfe, AVG(t.mae_r) mae, SUM(s.live) live
+                       FROM setups s LEFT JOIN setup_tracks t ON t.key = s.key GROUP BY g ORDER BY g""")
+        by_filter = []
+        for f in ("F1_bull", "F2_drawdown", "F3_fomc", "F3_qclose", "F4_location", "stop_max"):
+            r = q("""SELECT COUNT(*) n, AVG(t.r_partial_be) r, AVG(t.r_partial_be > 0) win FROM setups s
+                     JOIN setup_tracks t ON t.key = s.key WHERE s.failed = ?""", (f,))[0]
+            by_filter.append({"filter": f, **r})
+        recent = q("""SELECT s.symbol, s.side, s.tier, s.entry_time, s.level_tf, s.entry, s.stop, s.stop_pct, s.tp2,
+                      s.passes, s.failed, s.live, s.alerted, t.done, t.r_partial_be, t.r_fixed_2r, t.mfe_r, t.mae_r
+                      FROM setups s LEFT JOIN setup_tracks t ON t.key = s.key WHERE s.skipped = ''
+                      ORDER BY s.entry_time DESC LIMIT 200""")
+        errors = q("SELECT ts, symbol, substr(detail, -300) detail FROM events WHERE kind='collect_error' "
+                   "ORDER BY ts DESC LIMIT 10")
+    finally:
+        conn.close()
+    size = sum((p.parent / (p.name + s)).stat().st_size for s in ("", "-wal") if (p.parent / (p.name + s)).exists())
+    return {"exists": True, "size_mb": size / 1e6, "tables": tables, "groups": groups, "by_filter": by_filter,
+            "recent": recent, "errors": errors}
+
+
 def build_app(cfg, password: str, need_login: bool, cookie_secure: bool) -> web.Application:
     secret = _secret(config.data_dir(cfg))
     cache: dict = {"t": 0.0, "data": None}
@@ -165,13 +210,46 @@ def build_app(cfg, password: str, need_login: bool, cookie_secure: bool) -> web.
             telegram.send_detail, "BissBTC scanner: test message from the dashboard. Alerts will arrive in this chat.")
         return web.json_response({"ok": ok, "detail": detail}, status=200 if ok else 502)
 
+    async def collect(_r):
+        if cache.get("col") is None or time.time() - cache.get("col_t", 0) > 60:
+            cache["col"] = await asyncio.to_thread(collect_snapshot, cfg)
+            cache["col_t"] = time.time()
+        return web.json_response(cache["col"])
+
+    async def export(_r):
+        """Consistent copy of the research database (sqlite backup API), for offline analysis."""
+        src = db_path(cfg)
+        if not src.exists():
+            return web.json_response({"error": "no database yet"}, status=404)
+        tmp = Path(tempfile.mkdtemp(dir=src.parent)) / "biss_export.sqlite"
+
+        def backup():
+            s = sqlite3.connect(f"{src.resolve().as_uri()}?mode=ro", uri=True, timeout=60)
+            d = sqlite3.connect(tmp)
+            with d:
+                s.backup(d)
+            d.close()
+            s.close()
+        await asyncio.to_thread(backup)
+        resp = web.StreamResponse(headers={"Content-Type": "application/vnd.sqlite3",
+                                           "Content-Disposition": f'attachment; filename="biss_{time.strftime("%Y%m%d_%H%M")}.sqlite"'})
+        await resp.prepare(_r)
+        with open(tmp, "rb") as f:
+            while chunk := f.read(1 << 20):
+                await resp.write(chunk)
+        await resp.write_eof()
+        tmp.unlink(missing_ok=True)
+        tmp.parent.rmdir()
+        return resp
+
     async def healthz(_r):
         return web.json_response({"ok": True})
 
     app = web.Application(middlewares=[auth])
     app.add_routes([web.get("/", index), web.post("/login", login), web.get("/api/data", data),
                     web.get("/api/backtest", backtest), web.get("/healthz", healthz),
-                    web.post("/api/telegram_test", tg_test)])
+                    web.post("/api/telegram_test", tg_test), web.get("/api/collect", collect),
+                    web.get("/api/export.sqlite", export)])
     return app
 
 

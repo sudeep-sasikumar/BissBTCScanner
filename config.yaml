@@ -102,6 +102,13 @@ validation:
   shuffles: 300
   seed: 7
 
+collect:
+  # Research data beside the scanner (biss/collect, docs/DATA.md). Records only - it never changes alerts.
+  enabled: true
+  db_path: data/biss.sqlite
+  hourly_minutes: 60             # Binance OI / long-short / taker flow / funding, WEEX OI and order books
+  liquidations: true             # Binance all-market liquidation stream (scanned symbols + BTC/ETH)
+
 scanner:
   # PAPER ALERTS ONLY. Strategy of 26 Nov 2026 (user spec): R3w / E2, T1 + T2 crypto, longs and shorts.
   # Backtest (scripts/u12_strategy.py main 200 -> reports/strategy.md; $1,000, 200 orderings, whole-number

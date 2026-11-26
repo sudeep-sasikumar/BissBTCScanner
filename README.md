@@ -73,6 +73,11 @@ project's compose editor in Docker Manager (Hostinger keeps the copy from when t
 The backtest shown on the dashboard is `biss/web/backtest.json`, made by `python scripts/u12_strategy.py main 200`
 (also writes `reports/strategy.md`). Rerun it and push after changing the strategy.
 
+Research data: the container also records every setup (passing or not) and its 30-day outcome, raw WEEX bars,
+funding, open interest, long/short ratios, order books and liquidations in `data/biss.sqlite`. It never changes
+alerts. See [docs/DATA.md](docs/DATA.md); download it from the dashboard's Data tab and run
+`python scripts/u13_live_review.py <file>`.
+
 On this PC: `python -m biss.dashboard` (http://127.0.0.1:8030, no login on localhost) or `python -m biss.app`
 (scanner + dashboard). The old systemd files in `deploy/` still work for a non-Docker install.
 

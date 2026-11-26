@@ -138,3 +138,17 @@ def first_bar(symbol: str, interval: str, lo_ms: int = 1_483_228_800_000) -> pd.
     if not rows:
         return None
     return pd.to_datetime(min(int(r[0]) for r in rows), unit="ms", utc=True)
+
+
+def premium_index() -> list[dict]:
+    """Mark / index price and funding for every contract (one call)."""
+    return get("premiumIndex")
+
+
+def open_interest(symbol: str) -> dict:
+    return get("openInterest", {"symbol": symbol})
+
+
+def depth(symbol: str, limit: int = 200) -> dict:
+    """Order book; WEEX accepts limit 15 or 200."""
+    return get("depth", {"symbol": symbol, "limit": limit})

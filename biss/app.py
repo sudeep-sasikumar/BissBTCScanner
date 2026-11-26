@@ -12,6 +12,7 @@ import time
 import traceback
 
 from . import config, dashboard
+from .collect.collector import Collector
 from .scanner import telegram
 from .scanner.live import Scanner
 
@@ -34,6 +35,13 @@ def main() -> None:
             print("scanner init failed, retrying in", wait, "s\n", traceback.format_exc()[-400:], flush=True)
             time.sleep(wait)
             wait = min(wait * 2, 600)
+    if (cfg.get("collect") or {}).get("enabled", True):
+        try:
+            sc.collector = Collector(cfg)
+            sc.collector.event("start", None, {"version": ver, "symbols": sc.symbols})
+            sc.collector.start_background()
+        except Exception:  # noqa: BLE001
+            print("collector disabled:", traceback.format_exc()[-400:], flush=True)
     missing = [k for k in ("DASHBOARD_PASSWORD",) if not os.environ.get(k)]
     url = dashboard_url()
     telegram.send(

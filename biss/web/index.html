@@ -88,6 +88,7 @@ ul.rules{margin:6px 0 0;padding-left:18px}ul.rules li{margin:3px 0}
     <button data-t="bt">Backtest</button>
     <button data-t="calls">Backtest calls</button>
     <button data-t="strategy">Strategy</button>
+    <button data-t="data">Data</button>
   </nav>
 
   <section id="t-live">
@@ -135,6 +136,22 @@ ul.rules{margin:6px 0 0;padding-left:18px}ul.rules li{margin:3px 0}
     <p class="muted small">The median route: the ordering of same-week signals whose end balance is the median of all orderings.
       "Balance after" is the account right after that trade closed (other trades may have closed in between).
       Signals the account could not take (no free margin) are not listed.</p>
+  </section>
+
+  <section id="t-data" hidden>
+    <div class="banner small">The scanner records every setup it computes (passing or not), follows each one for 30 days on
+      WEEX 15m bars, and stores the raw bars, funding, open interest, long/short ratios, order-book depth and liquidations.
+      This is for reviewing and improving the strategy later; it never changes alerts.
+      <a href="api/export.sqlite" id="exportLink">Download the database</a> (SQLite) for offline analysis.</div>
+    <h2>Setups so far <span class="muted" style="text-transform:none;letter-spacing:0">(R = the live plan, gross of fees; open ones at the last close)</span></h2>
+    <div class="tw" id="dGroups"></div>
+    <h2>Setups that failed exactly one filter <span class="muted" style="text-transform:none;letter-spacing:0">(what each filter is keeping out)</span></h2>
+    <div class="tw" id="dFilters"></div>
+    <h2>Recent setups and their paths</h2>
+    <div class="tw" style="max-height:60vh" id="dRecent"></div>
+    <h2>Stored data</h2>
+    <div class="tw" id="dTables"></div>
+    <div id="dErrors"></div>
   </section>
 
   <section id="t-strategy" hidden>
@@ -210,7 +227,8 @@ const outChip = o => { const [t, c] = OUT[o] || [o || "–", ""]; return `<span 
 $("tabs").addEventListener("click", e => {
   const b = e.target.closest("button"); if (!b) return;
   document.querySelectorAll("#tabs button").forEach(x => x.classList.toggle("on", x === b));
-  ["live", "bt", "calls", "strategy"].forEach(t => $("t-" + t).hidden = t !== b.dataset.t);
+  ["live", "bt", "calls", "strategy", "data"].forEach(t => $("t-" + t).hidden = t !== b.dataset.t);
+  if (b.dataset.t === "data") loadData();
   try { localStorage.setItem("biss_tab", b.dataset.t); } catch (_) {}
 });
 
@@ -391,6 +409,31 @@ function renderStrategy(p) {
       `Leverage caps: ${caps}. If more is needed the size is cut, never the stop widened. Isolated margin.`])}</div>` +
     `<div class="panel"><b>What this is</b>${li(["Paper alerts only: the app reads market data without API keys and never places orders.",
       "Alerts go to Telegram; this page is read-only.", "Settings come from config.yaml in the image; change them in the repository and redeploy."])}</div>`;
+}
+
+// ---- data (research collector) --------------------------------------------------------------
+const msT = v => v == null ? "–" : (typeof v === "string" ? v : new Date(v).toISOString().replace("T", " ").slice(0, 16));
+async function loadData() {
+  const r = await fetch("api/collect", {credentials: "same-origin"}); if (!r.ok) return;
+  const d = await r.json();
+  if (!d.exists) { $("dTables").innerHTML = '<div class="empty">No data yet: the collector starts with the first scan.</div>'; return; }
+  const rr = v => v == null ? "–" : (v >= 0 ? "+" : "") + num(v) + "R";
+  $("dGroups").innerHTML = table([{h: "Group", l: 1, f: r => esc(r.g)}, {h: "Setups", f: r => r.n}, {h: "Live", f: r => r.live ?? 0},
+    {h: "30 days done", f: r => r.done ?? 0}, {h: "Win %", f: r => r.win != null ? pct(r.win, 0) : "–"},
+    {h: "Avg R", f: r => rr(r.r), c: r => sgn(r.r)}, {h: "Avg MFE", f: r => rr(r.mfe)}, {h: "Avg MAE", f: r => rr(r.mae)}], d.groups);
+  $("dFilters").innerHTML = table([{h: "Only failed", l: 1, f: r => esc(r.filter)}, {h: "Setups", f: r => r.n},
+    {h: "Win %", f: r => r.win != null ? pct(r.win, 0) : "–"}, {h: "Avg R", f: r => rr(r.r), c: r => sgn(r.r)}], d.by_filter);
+  $("dRecent").innerHTML = table([{h: "Entry", l: 1, f: r => esc(msT(r.entry_time))}, {h: "Coin", l: 1, f: r => esc(r.symbol)},
+    {h: "Side", l: 1, f: r => sideChip(r.side)}, {h: "Tier", f: r => esc(r.tier || "")}, {h: "Level", f: r => esc(r.level_tf || "")},
+    {h: "Entry", f: r => px(r.entry)}, {h: "SL", f: r => `${px(r.stop)} <span class="muted">${pct(r.stop_pct)}</span>`}, {h: "TP2", f: r => px(r.tp2)},
+    {h: "Passes", l: 1, f: r => r.passes ? '<span class="chip good">yes</span>' : `<span class="chip">${esc(r.failed || "no")}</span>`},
+    {h: "Live", f: r => r.live ? "live" : '<span class="muted">backfill</span>'},
+    {h: "Plan R", f: r => rr(r.r_partial_be), c: r => sgn(r.r_partial_be)}, {h: "2R exit", f: r => rr(r.r_fixed_2r), c: r => sgn(r.r_fixed_2r)},
+    {h: "MFE", f: r => rr(r.mfe_r)}, {h: "MAE", f: r => rr(r.mae_r)}, {h: "Status", l: 1, f: r => r.done ? "done" : "tracking"}], d.recent, "No setups yet.");
+  $("dTables").innerHTML = table([{h: "Table", l: 1, f: r => esc(r.table)}, {h: "Rows", f: r => Number(r.rows).toLocaleString()},
+    {h: "Latest", l: 1, f: r => esc(msT(r.last))}], d.tables) + `<div class="muted small" style="padding:8px 10px">Database ${num(d.size_mb, 1)} MB</div>`;
+  $("dErrors").innerHTML = d.errors.length ? `<h2>Recent collector errors</h2>` + table([{h: "Time", l: 1, f: r => esc(msT(r.ts))},
+    {h: "Where", l: 1, f: r => esc(r.symbol)}, {h: "Detail", l: 1, f: r => `<span class="small">${esc(r.detail)}</span>`}], d.errors) : "";
 }
 
 // ---- load ------------------------------------------------------------------------------------
