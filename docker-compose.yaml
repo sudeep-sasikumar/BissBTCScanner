@@ -1,0 +1,53 @@
+# BissBTC paper scanner + dashboard on the VPS (README "Running on the VPS").
+# Made for Hostinger Docker Manager -> "Compose from URL" with this file's raw GitHub link:
+#   https://raw.githubusercontent.com/sudeep-sasikumar/BissBTCScanner/main/docker-compose.yaml
+# Hostinger downloads ONLY this file, so nothing here refers to other files. The image is built by
+# GitHub Actions (.github/workflows/docker-image.yml) on every push; a redeploy pulls the latest.
+# Hostinger keeps the copy of this file from when the project was created: a redeploy updates the
+# image, not this file. When this file changes, paste it into the project's compose editor.
+#
+# HTTPS dashboard: same Traefik as LeverageTrading (/lts/). This one is served under /biss/ on the
+# same hostname and certificate. No host ports are opened; the dashboard is read-only.
+# PAPER ONLY: the app reads public market data without API keys and never places orders.
+# The VPS must be in a region Binance and WEEX serve (not the US).
+#
+# Environment variables to enter in Docker Manager:
+#   TELEGRAM_BOT_TOKEN   from @BotFather (the LTS bot is fine: this app only sends, it never polls)
+#   TELEGRAM_CHAT_ID     your chat id (a group id starts with -100)
+#   DASHBOARD_PASSWORD   required for the dashboard - pick a long one (without it the dashboard stays off)
+#   DOMAIN               optional - defaults to this VPS's Hostinger hostname
+services:
+  bissbtc:
+    image: ghcr.io/sudeep-sasikumar/bissbtcscanner:latest
+    pull_policy: always                   # a redeploy picks up the newest image
+    restart: unless-stopped
+    environment:
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+      DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD:-}   # required: without it the dashboard stays off
+      DASHBOARD_COOKIE_SECURE: "true"               # the login cookie is only sent over HTTPS
+      DASHBOARD_PATH: /biss
+      DOMAIN: ${DOMAIN:-srv1479428.hstgr.cloud}     # used for the dashboard link on Telegram
+    volumes:
+      - biss_data:/app/data               # scanner state (paper trades, alerts) - survives redeploys
+    expose:
+      - "8030"                            # reached only through Traefik
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.biss.rule=Host(`${DOMAIN:-srv1479428.hstgr.cloud}`) && PathPrefix(`/biss`)
+      - traefik.http.routers.biss.entrypoints=websecure
+      - traefik.http.routers.biss.tls=true
+      - traefik.http.routers.biss.tls.certresolver=letsencrypt
+      - traefik.http.routers.biss.middlewares=biss-slash,biss-strip
+      # /biss -> /biss/ (the page loads its data with relative links), then strip /biss for the app
+      - traefik.http.middlewares.biss-slash.redirectregex.regex=^(https?://[^/]+/biss)$$
+      - traefik.http.middlewares.biss-slash.redirectregex.replacement=$${1}/
+      - traefik.http.middlewares.biss-slash.redirectregex.permanent=true
+      - traefik.http.middlewares.biss-strip.stripprefix.prefixes=/biss
+      - traefik.http.services.biss.loadbalancer.server.port=8030
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+
+volumes:
+  biss_data:

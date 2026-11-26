@@ -37,9 +37,36 @@ CHECKLIST = ("Manual checklist before acting: (1) Coinglass liquidation cluster 
              "(4) stop order placed at the stop, never widened?")
 
 
+def _num(v):
+    try:
+        f = float(v)
+        return f if np.isfinite(f) else None
+    except (TypeError, ValueError):
+        return None
+
+
+def compact(s: dict) -> dict:
+    """The fields of an enriched signal the dashboard and the state file keep."""
+    z = s.get("size") or {}
+    keep = ("symbol", "side", "tier", "level", "level_tf", "level_type", "pivot_tf", "swept_low", "entry", "stop",
+            "stop_pct", "tp1_eff", "tp2", "rr_tp2", "risk_mult", "risk_pct", "conviction", "liq_price", "lev_cap",
+            "passes", "risk_cap_ok", "sweep_depth_atr4h", "dd_from_120d", "days_to_fomc", "days_to_qclose")
+    out = {k: (_num(s[k]) if isinstance(s.get(k), (int, float, np.floating, np.integer)) and not isinstance(s.get(k), bool)
+               else s.get(k)) for k in keep}
+    out["passes"], out["risk_cap_ok"] = bool(s.get("passes")), bool(s.get("risk_cap_ok"))
+    for k in ("swept_time", "reclaim_time", "entry_time"):
+        out[k] = str(s.get(k))
+    out["filters"] = {k: bool(s[k]) for k in FILTERS if k in s}
+    out["required"] = list(s.get("required") or [])
+    out.update({"notional": _num(z.get("notional")), "margin": _num(z.get("margin")), "lev": _num(z.get("lev")),
+                "risk_usd": _num(z.get("risk_usd"))})
+    return out
+
+
 class Scanner:
     def __init__(self, cfg):
         self.cfg = cfg
+        self._recent: dict[str, list[dict]] = {}
         sc = cfg.scanner
         self.state_path = config.ROOT / sc.state_file
         self.state = json.loads(self.state_path.read_text(encoding="utf-8")) if self.state_path.exists() else \
@@ -82,7 +109,9 @@ class Scanner:
 
     def save(self) -> None:
         self.state_path.parent.mkdir(parents=True, exist_ok=True)
-        self.state_path.write_text(json.dumps(self.state, default=str, indent=1), encoding="utf-8")
+        tmp = self.state_path.with_suffix(".tmp")           # atomic: the dashboard reads this file
+        tmp.write_text(json.dumps(self.state, default=str, indent=1), encoding="utf-8")
+        tmp.replace(self.state_path)
 
     def refresh_daily(self) -> None:
         if time.time() - self.daily_at < 3600 and self.daily:
@@ -132,8 +161,10 @@ class Scanner:
                        sides=(1, -1) if cfg.scanner.shorts else (1,))
         if sig.empty:
             return []
-        sig = sig[(sig.skipped.fillna("") == "") & (pd.to_datetime(sig.entry_time, utc=True) > since)]
-        return [self.enrich(sym, r.to_dict()) for _, r in sig.iterrows()]
+        sig = sig[sig.skipped.fillna("") == ""]
+        out = [self.enrich(sym, r.to_dict()) for _, r in sig.iterrows()]
+        self._recent[sym] = [compact(s) for s in out]          # every setup in the 15m window, for the dashboard
+        return [s for s in out if pd.Timestamp(s["entry_time"]) > since]
 
     def enrich(self, sym: str, s: dict) -> dict:
         cfg = self.cfg
@@ -260,6 +291,8 @@ class Scanner:
         self.refresh_daily()
         since = pd.Timestamp(self.state.get("last_poll") or (pd.Timestamp.now(tz="UTC") - pd.Timedelta(hours=1)))
         now = pd.Timestamp.now(tz="UTC")
+        t0, failed = time.time(), []
+        alerts = self.state.setdefault("alerts", [])
         for sym in self.symbols:
             try:
                 for s in self.scan_symbol(sym, since):
@@ -275,7 +308,11 @@ class Scanner:
                     tag = "" if s["passes"] else "[FILTERS FAILED - info only]\n"
                     if s["passes"] and not s["risk_cap_ok"]:
                         tag = "[OPEN-RISK CAP - not taken]\n"
-                    telegram.send(tag + self.message(s))
+                    sent = telegram.send(tag + self.message(s))
+                    alerts.append(compact(s) | {"alerted_at": str(now), "telegram": sent,
+                                                "status": "taken" if s["passes"] and s["risk_cap_ok"] else
+                                                ("over open-risk cap" if s["passes"] else "filters failed")})
+                    del alerts[:-500]
                     if s["passes"] and s["risk_cap_ok"]:
                         self.state["open"].append({
                             "symbol": sym, "side": s["side"], "entry": s["entry"], "stop": s["stop"],
@@ -283,10 +320,22 @@ class Scanner:
                             "last_bar": str(pd.Timestamp(s["entry_time"]) - pd.Timedelta(minutes=15)),
                             "remaining": 1.0, "half_done": False, "legs": [],
                             "risk_usd": s["size"]["risk_usd"], "margin": s["size"]["margin"],
-                            "lev": s["size"]["lev"], "risk_pct": s["risk_pct"]})
+                            "lev": s["size"]["lev"], "risk_pct": s["risk_pct"], "tp1": s["tp1_eff"],
+                            "level": s["level"], "tier": s["tier"], "conviction": s["conviction"],
+                            "notional": s["size"]["notional"], "liq_price": s["liq_price"]})
             except Exception:  # noqa: BLE001
+                failed.append(sym)
                 print("scan fail", sym, traceback.format_exc()[-300:], flush=True)
         self.track()
+        best: dict[tuple, dict] = {}            # one row per coin / side / entry (levels in one zone repeat)
+        for x in (x for v in self._recent.values() for x in v):
+            k = (x["symbol"], x["side"], x["entry_time"])
+            if k not in best or (x["passes"] and not best[k]["passes"]):
+                best[k] = x
+        self.state["recent"] = sorted(best.values(), key=lambda x: (x["passes"], x["entry_time"]), reverse=True)[:300]
+        self.state["health"] = {"symbols": len(self.symbols), "failed": failed[:50], "n_failed": len(failed),
+                                "scan_seconds": round(time.time() - t0, 1), "bar": str(bar),
+                                "open_risk_pct": self.open_risk_usd() / self.equity() if self.equity() > 0 else None}
         self.state["last_poll"] = str(now)
         self.save()
 

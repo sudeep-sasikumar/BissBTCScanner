@@ -1,0 +1,8 @@
+# Runtime (scanner + dashboard) and tests. Versions are the ones the backtest and tests ran on.
+numpy==2.5.5
+pandas==3.1.1
+pyarrow==26.0.1
+requests==2.34.2
+PyYAML==6.0.4
+aiohttp==3.14.5
+pytest==9.2.0

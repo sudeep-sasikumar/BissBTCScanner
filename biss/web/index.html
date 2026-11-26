@@ -1,0 +1,414 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>BissBTC Scanner</title>
+<style>
+:root{
+  --bg:#f5f6f8;--panel:#fff;--line:#e3e6eb;--text:#161a22;--muted:#667085;
+  --good:#0b7a53;--bad:#c2362b;--warn:#a15c00;--accent:#2f5bd8;
+  --good-bg:#e4f5ee;--bad-bg:#fbe9e7;--warn-bg:#fdf1dc;--accent-bg:#e8eefc;--chip:#eef0f4;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#0f1218;--panel:#171b24;--line:#272d3a;--text:#e7eaf0;--muted:#98a2b3;
+  --good:#3ecf9a;--bad:#ff7b6e;--warn:#f2b45a;--accent:#8aa8ff;
+  --good-bg:#10362a;--bad-bg:#3d1c19;--warn-bg:#3a2b10;--accent-bg:#1b2747;--chip:#232938;
+}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{max-width:1240px;margin:0 auto;padding:16px}
+h1{font-size:18px;margin:0}
+h2{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:22px 0 8px;font-weight:600}
+.top{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between}
+.muted{color:var(--muted)}.small{font-size:12px}
+.chip{display:inline-block;padding:2px 9px;border-radius:999px;background:var(--chip);font-size:12px;font-weight:600;white-space:nowrap}
+.chip.good{background:var(--good-bg);color:var(--good)}.chip.bad{background:var(--bad-bg);color:var(--bad)}
+.chip.warn{background:var(--warn-bg);color:var(--warn)}.chip.accent{background:var(--accent-bg);color:var(--accent)}
+.banner{margin-top:12px;padding:10px 14px;border-radius:10px;border:1px solid var(--line);background:var(--panel)}
+.banner.warn{background:var(--warn-bg);border-color:transparent}.banner.bad{background:var(--bad-bg);border-color:transparent}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px}
+.tile{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px;position:relative}
+.tile .k{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px}
+.tile .v{font-size:22px;font-weight:650;margin-top:2px;font-variant-numeric:tabular-nums}
+.tile .s{font-size:12px;color:var(--muted);margin-top:2px}
+.pos{color:var(--good)}.neg{color:var(--bad)}
+.q{width:18px;height:18px;border-radius:50%;border:1px solid var(--line);background:var(--chip);color:var(--muted);
+   font:600 11px/16px system-ui;cursor:pointer;padding:0;flex:none}
+.q:hover,.q[aria-expanded="true"]{background:var(--accent-bg);color:var(--accent);border-color:transparent}
+.pop{position:absolute;z-index:20;left:8px;right:8px;top:100%;margin-top:4px;background:var(--panel);border:1px solid var(--line);
+     border-radius:10px;padding:10px 12px;font-size:13px;box-shadow:0 8px 24px rgba(0,0,0,.18);min-width:240px}
+.pop b{display:block;margin-bottom:4px}
+.tabs{display:flex;gap:4px;margin-top:18px;border-bottom:1px solid var(--line);overflow-x:auto}
+.tabs button{background:none;border:0;border-bottom:2px solid transparent;color:var(--muted);padding:9px 12px;font:inherit;font-weight:600;cursor:pointer;white-space:nowrap}
+.tabs button.on{color:var(--text);border-bottom-color:var(--accent)}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+.tw{overflow-x:auto;background:var(--panel);border:1px solid var(--line);border-radius:10px}
+table{border-collapse:collapse;width:100%;font-size:13px;font-variant-numeric:tabular-nums}
+th,td{padding:7px 10px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+th{font-size:12px;color:var(--muted);font-weight:600;position:sticky;top:0;background:var(--panel);cursor:default}
+th.sort{cursor:pointer}th.sort:hover{color:var(--text)}
+td.l,th.l{text-align:left}
+tr:last-child td{border-bottom:0}
+.empty{padding:18px;color:var(--muted);text-align:center}
+.controls{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:8px 0}
+select,input{font:inherit;padding:6px 9px;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--text)}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:12px}
+svg text{fill:var(--muted);font-size:11px}
+ul.rules{margin:6px 0 0;padding-left:18px}ul.rules li{margin:3px 0}
+#login{max-width:340px;margin:14vh auto;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:22px}
+#login input{width:100%;margin:10px 0}
+#login button,.btn{font:inherit;font-weight:600;padding:8px 14px;border-radius:8px;border:0;background:var(--accent);color:#fff;cursor:pointer}
+.err{color:var(--bad);font-size:13px;min-height:18px}
+@media (max-width:600px){main{padding:12px}.tile .v{font-size:19px}}
+</style>
+</head>
+<body>
+<div id="login" hidden>
+  <h1>BissBTC Scanner</h1>
+  <p class="muted small">Read-only dashboard. Paper alerts only.</p>
+  <form id="loginForm">
+    <input id="pw" type="password" autocomplete="current-password" placeholder="Dashboard password" required>
+    <button type="submit">Sign in</button>
+    <div class="err" id="loginErr"></div>
+  </form>
+</div>
+
+<main id="app" hidden>
+  <div class="top">
+    <div><h1>BissBTC Scanner <span class="chip warn">PAPER</span></h1>
+      <div class="muted small" id="sub">loading...</div></div>
+    <div id="status"></div>
+  </div>
+  <div id="banner"></div>
+  <nav class="tabs" id="tabs">
+    <button data-t="live" class="on">Live</button>
+    <button data-t="bt">Backtest</button>
+    <button data-t="calls">Backtest calls</button>
+    <button data-t="strategy">Strategy</button>
+  </nav>
+
+  <section id="t-live">
+    <h2>Paper account</h2>
+    <div class="tiles" id="liveTiles"></div>
+    <h2>Open paper trades</h2>
+    <div class="tw" id="openT"></div>
+    <h2>Alerts sent</h2>
+    <div class="tw" id="alertsT"></div>
+    <h2>Setups in the scanner's 30-day window <span class="muted" style="text-transform:none;letter-spacing:0">(live 15m data, including ones before the scanner started)</span></h2>
+    <div class="tw" id="recentT"></div>
+    <h2>Closed paper trades</h2>
+    <div class="tw" id="closedT"></div>
+  </section>
+
+  <section id="t-bt" hidden>
+    <div class="banner small" id="btNote"></div>
+    <h2>Account, median route</h2>
+    <div class="tiles" id="btTiles"></div>
+    <h2>Trade quality</h2>
+    <div class="tiles" id="qTiles"></div>
+    <h2>Risk-adjusted ratios</h2>
+    <div class="tiles" id="rTiles"></div>
+    <div class="grid2" style="margin-top:12px">
+      <div class="panel"><div class="top"><b>Equity, median route</b>
+        <label class="small muted"><input type="checkbox" id="logScale" checked> log scale</label></div>
+        <div id="eqChart"></div></div>
+      <div class="panel"><b>End balance over all orderings</b>
+        <div class="muted small">Each bar counts orderings of the same trades that ended in that range.</div>
+        <div id="distChart"></div></div>
+    </div>
+    <h2>By side and tier (every signal, R per trade)</h2>
+    <div class="tw" id="splitT"></div>
+  </section>
+
+  <section id="t-calls" hidden>
+    <div class="controls">
+      <select id="fSide"><option value="">Both sides</option><option>long</option><option>short</option></select>
+      <select id="fTier"><option value="">T1 + T2</option><option>T1</option><option>T2</option></select>
+      <select id="fRes"><option value="">All outcomes</option></select>
+      <input id="fSym" placeholder="Coin" size="8">
+      <span class="muted small" id="callsCount"></span>
+    </div>
+    <div class="tw" style="max-height:75vh" id="callsT"></div>
+    <p class="muted small">The median route: the ordering of same-week signals whose end balance is the median of all orderings.
+      "Balance after" is the account right after that trade closed (other trades may have closed in between).
+      Signals the account could not take (no free margin) are not listed.</p>
+  </section>
+
+  <section id="t-strategy" hidden>
+    <div class="grid2" id="stratBox"></div>
+  </section>
+  <p class="muted small" id="foot"></p>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const num = (v, d = 2) => v == null || !isFinite(v) ? "–" : Number(v).toLocaleString(undefined, {minimumFractionDigits: d, maximumFractionDigits: d});
+const usd = (v, d = 0) => v == null || !isFinite(v) ? "–" : (v < 0 ? "-$" : "$") + Math.abs(v).toLocaleString(undefined, {minimumFractionDigits: d, maximumFractionDigits: d});
+const pct = (v, d = 1) => v == null || !isFinite(v) ? "–" : (100 * v).toFixed(d) + "%";
+const px = v => { if (v == null || !isFinite(v)) return "–"; const a = Math.abs(v);
+  return Number(v).toLocaleString(undefined, {maximumSignificantDigits: a >= 1000 ? 7 : 5}); };
+const sgn = v => v == null ? "" : v > 0 ? "pos" : v < 0 ? "neg" : "";
+const ago = t => { if (!t) return "never"; const s = (Date.now() - new Date(t).getTime()) / 1000;
+  return s < 90 ? Math.round(s) + "s ago" : s < 5400 ? Math.round(s / 60) + " min ago" : s < 172800 ? Math.round(s / 3600) + " h ago" : Math.round(s / 86400) + " d ago"; };
+const dt = t => t && t !== "None" && t !== "NaT" ? String(t).replace("T", " ").slice(0, 16) : "–";
+
+// ---- ratio explainers (the "?" buttons) ----------------------------------------------------
+const HELP = {
+  median_end: ["Median end balance", "The same trades were replayed in 200 random orders within each week (the order decides which trades get margin when several arrive together). This is the middle result: half the orderings ended higher, half lower."],
+  p10_end: ["Worst 10% end", "Only 1 ordering in 10 ended below this. A rough 'bad luck' outcome for the same set of trades."],
+  max_dd: ["Max drawdown", "The largest fall from a balance high to a later low, in % of that high. 60% means the account at some point lost 60% from its peak before recovering. With 10% risk per trade this is the number to respect."],
+  cagr: ["CAGR", "Compound annual growth rate: the steady yearly growth that would turn the start balance into the end balance over the same number of years."],
+  win_rate: ["Win %", "Share of trades that closed with a net gain (after fees, slippage and funding). A trade that hit +1R, moved the stop to entry and was then stopped is a small win."],
+  avg_R: ["Average R (expectancy)", "R = the amount risked on the trade (entry to stop). Average R is the mean result per trade in those units, after costs. +0.25R means each trade made a quarter of its risk on average. This is the edge per trade."],
+  payoff: ["Risk-reward (payoff ratio)", "Average winning trade divided by the average losing trade, both in R. Above 1 means winners are bigger than losers. Read it together with win %: a low payoff needs a high win rate."],
+  rr_plan: ["Planned R:R to TP2", "Distance from entry to TP2 divided by the distance from entry to the stop, at the time of the signal (median over trades). It is the plan, not the result."],
+  profit_factor: ["Profit factor", "Gross dollars won divided by gross dollars lost on the median route. 1.0 is break-even; 1.5 means $1.50 won for every $1 lost."],
+  sharpe: ["Sharpe ratio", "Average daily return divided by the standard deviation of daily returns, scaled to a year (x √365). It rewards smooth growth and penalises every swing, up or down. Rough guide: below 1 is volatile for the return, 1–2 is good, above 2 is very good. Crypto equity curves with big winners often look better on Sortino than on Sharpe."],
+  sortino: ["Sortino ratio", "Like Sharpe, but only falls count as risk: average daily return divided by the downside deviation (the size of losing days), scaled to a year. Better suited here because this strategy's big winners are upside swings that Sharpe wrongly counts as risk. Above 2 is good."],
+  calmar: ["Calmar ratio", "CAGR divided by the maximum drawdown. It answers: how much yearly growth do I get per unit of worst pain? Above 1 is good; above 3 is excellent."],
+  r_sharpe: ["Per-trade Sharpe (R)", "Average R divided by the standard deviation of R across trades, ignoring sizing and timing. It measures how consistent the edge is per trade. 0.2–0.3 per trade is typical for a usable swing edge."],
+  r_sortino: ["Per-trade Sortino (R)", "Average R divided by the downside deviation of R (losing trades only). Higher means the losses are small relative to the average gain."],
+  taken: ["Trades taken", "Signals the account actually took on the median route. The rest were skipped because there was no free margin (or the open-risk cap was full) when they arrived."],
+  equity: ["Paper equity", "The start balance plus the gross result of closed paper trades. Fees and funding are not deducted on the live paper record."],
+  open_risk: ["Open risk", "Money that would be lost if every open paper trade hit its stop, in % of paper equity. Trades whose stop has moved to entry count as zero. The cap is 60%."],
+};
+document.addEventListener("click", e => {
+  const b = e.target.closest(".q");
+  document.querySelectorAll(".pop").forEach(p => { if (!b || p.parentElement !== b.parentElement.parentElement) p.remove(); });
+  document.querySelectorAll(".q[aria-expanded=true]").forEach(x => { if (x !== b) x.setAttribute("aria-expanded", "false"); });
+  if (!b) return;
+  const tile = b.closest(".tile");
+  const open = b.getAttribute("aria-expanded") === "true";
+  if (open) { b.setAttribute("aria-expanded", "false"); tile.querySelector(".pop")?.remove(); return; }
+  const [t, d] = HELP[b.dataset.h] || ["", ""];
+  const p = document.createElement("div"); p.className = "pop"; p.setAttribute("role", "dialog");
+  p.innerHTML = `<b>${esc(t)}</b>${esc(d)}`; tile.appendChild(p); b.setAttribute("aria-expanded", "true");
+});
+document.addEventListener("keydown", e => { if (e.key === "Escape") document.querySelectorAll(".pop").forEach(p => p.remove()); });
+
+const tile = (k, v, s = "", cls = "", h = "") =>
+  `<div class="tile"><div class="k">${esc(k)}${h ? ` <button class="q" data-h="${h}" aria-label="What is ${esc(k)}?" aria-expanded="false">?</button>` : ""}</div>` +
+  `<div class="v ${cls}">${v}</div>${s ? `<div class="s">${s}</div>` : ""}</div>`;
+
+function table(cols, rows, empty = "Nothing yet.") {
+  if (!rows.length) return `<div class="empty">${esc(empty)}</div>`;
+  const h = cols.map(c => `<th class="${c.l ? "l" : ""}">${esc(c.h)}</th>`).join("");
+  const b = rows.map(r => "<tr>" + cols.map(c => `<td class="${c.l ? "l" : ""} ${c.c ? c.c(r) : ""}">${c.f(r)}</td>`).join("") + "</tr>").join("");
+  return `<table><thead><tr>${h}</tr></thead><tbody>${b}</tbody></table>`;
+}
+const sideChip = s => `<span class="chip ${s === "long" ? "good" : "bad"}">${esc((s || "").toUpperCase())}</span>`;
+const OUT = {stop: ["SL hit", "bad"], tp2: ["TP2", "good"], be: ["TP1, then BE", ""], liquidated: ["Liquidated (wick past stop)", "bad"],
+  time: ["Time exit", "warn"], tp1: ["TP1", "good"], target: ["TP1 + TP2", "good"], trail: ["Trail", "accent"],
+  open: ["Open at data end (marked)", "accent"]};
+const outChip = o => { const [t, c] = OUT[o] || [o || "–", ""]; return `<span class="chip ${c}">${esc(t)}</span>`; };
+
+// ---- tabs ------------------------------------------------------------------------------------
+$("tabs").addEventListener("click", e => {
+  const b = e.target.closest("button"); if (!b) return;
+  document.querySelectorAll("#tabs button").forEach(x => x.classList.toggle("on", x === b));
+  ["live", "bt", "calls", "strategy"].forEach(t => $("t-" + t).hidden = t !== b.dataset.t);
+  try { localStorage.setItem("biss_tab", b.dataset.t); } catch (_) {}
+});
+
+// ---- live --------------------------------------------------------------------------------------
+function renderLive(d) {
+  const h = d.health || {};
+  const lp = d.last_poll ? new Date(d.last_poll) : null;
+  const stale = !lp || (Date.now() - lp) > 40 * 60 * 1000;
+  $("sub").textContent = `${(d.profile || {}).reclaim}/${(d.profile || {}).entry} · ${h.symbols ?? "?"} symbols · version ${d.version}`;
+  $("status").innerHTML = `<span class="chip ${stale ? "bad" : "good"}">scan ${esc(ago(d.last_poll))}</span> ` +
+    `<span class="chip ${d.telegram ? "good" : "warn"}">Telegram ${d.telegram ? "on" : "off"}</span>`;
+  let ban = "";
+  if (d.error) ban += `<div class="banner bad">${esc(d.error)}</div>`;
+  if (!d.last_poll) ban += `<div class="banner warn">The scanner has not finished its first pass yet (the first pass loads 30 days of 15m bars for every symbol and takes a few minutes).</div>`;
+  else if (stale) ban += `<div class="banner bad">No scan for over 40 minutes - check the container log.</div>`;
+  if (!d.telegram) ban += `<div class="banner warn">Telegram is off: set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID in the VPS environment.</div>`;
+  if (h.n_failed) ban += `<div class="banner warn">${h.n_failed} symbol(s) failed on the last scan: ${esc((h.failed || []).join(", "))}</div>`;
+  $("banner").innerHTML = ban;
+  const ps = d.paper_stats || {};
+  const eq0 = (d.profile || {}).paper_equity;
+  $("liveTiles").innerHTML =
+    tile("Paper equity", usd(d.equity, 2), `start ${usd(eq0)}`, sgn(d.equity - eq0), "equity") +
+    tile("Open risk", pct(h.open_risk_pct), `cap ${pct((d.profile || {}).max_open_risk, 0)}`, "", "open_risk") +
+    tile("Open trades", d.open.length, `${d.alerts.length} alerts recorded`) +
+    tile("Closed paper trades", ps.n || 0, ps.n ? `win ${pct(ps.win, 0)} · avg ${num(ps.avg_r)}R` : "none yet", "", "") +
+    tile("Last scan", h.scan_seconds != null ? `${num(h.scan_seconds, 0)}s` : "–", `bar ${esc(dt(h.bar))} UTC`);
+  $("openT").innerHTML = table([
+    {h: "Entered", l: 1, f: r => esc(dt(r.entry_time))}, {h: "Coin", l: 1, f: r => esc(r.symbol)}, {h: "Side", l: 1, f: r => sideChip(r.side)},
+    {h: "Tier", f: r => esc(r.tier || "")}, {h: "Entry", f: r => px(r.entry)}, {h: "Stop now", f: r => px(r.stop)},
+    {h: "Original SL", f: r => px(r.stop_orig)}, {h: "TP1 (+1R)", f: r => px(r.entry + (r.entry - r.stop_orig))}, {h: "TP2", f: r => px(r.tp2)},
+    {h: "Lev", f: r => r.lev ? num(r.lev, 1) + "x" : "–"}, {h: "Margin", f: r => usd(r.margin)}, {h: "Risk", f: r => usd(r.risk_usd, 2)},
+    {h: "50% off at +1R", l: 1, f: r => r.half_done ? '<span class="chip good">done, stop at entry</span>' : '<span class="chip">not yet</span>'},
+  ], d.open, "No open paper trades.");
+  const sigCols = extra => [
+    {h: "Entry time", l: 1, f: r => esc(dt(r.entry_time))}, {h: "Coin", l: 1, f: r => esc(r.symbol)}, {h: "Side", l: 1, f: r => sideChip(r.side)},
+    {h: "Tier", f: r => esc(r.tier || "")}, {h: "Level", f: r => `${px(r.level)} <span class="muted">${esc(r.level_tf || "")}</span>`},
+    {h: "Entry", f: r => px(r.entry)}, {h: "SL", f: r => `${px(r.stop)} <span class="muted">${pct(r.stop_pct)}</span>`},
+    {h: "TP1", f: r => px(r.tp1_eff)}, {h: "TP2", f: r => px(r.tp2)}, {h: "R:R", f: r => num(r.rr_tp2, 1)},
+    {h: "Risk", f: r => `${pct(r.risk_pct)} <span class="muted">${esc(r.conviction === "strong" ? "1.0" : "0.6")}${r.side === "short" ? "×0.5" : ""}</span>`},
+    {h: "Lev", f: r => r.lev ? num(r.lev, 1) + "x" : "–"},
+    {h: "Filters", l: 1, f: r => (r.required || []).map(k => `<span class="chip ${r.filters?.[k] ? "good" : "bad"}" title="${esc(k)}">${esc(k.replace(/^F\d_/, ""))}</span>`).join(" ")},
+    ...extra];
+  $("alertsT").innerHTML = table(sigCols([
+    {h: "Status", l: 1, f: r => `<span class="chip ${r.status === "taken" ? "good" : "warn"}">${esc(r.status)}</span>`},
+    {h: "TG", f: r => r.telegram ? "sent" : '<span class="muted">not sent</span>'}]), d.alerts, "No alerts yet. Weekly-close setups are rare: expect a handful a month.");
+  $("recentT").innerHTML = table(sigCols([{h: "Passes", l: 1, f: r => r.passes ? '<span class="chip good">yes</span>' : '<span class="chip">no</span>'}]),
+    d.recent || [], "No setups in the 30-day window.");
+  $("closedT").innerHTML = table([
+    {h: "Entered", l: 1, f: r => esc(dt(r.entry_time))}, {h: "Coin", l: 1, f: r => esc(r.symbol)}, {h: "Side", l: 1, f: r => sideChip(r.side)},
+    {h: "Entry", f: r => px(r.entry)}, {h: "SL", f: r => px(r.stop_orig)}, {h: "TP2", f: r => px(r.tp2)},
+    {h: "Exit legs", l: 1, f: r => esc((r.legs || []).map(l => `${(l[1] * 100).toFixed(0)}% @ ${px(l[2])}`).join(", "))},
+    {h: "R (gross)", f: r => num(r.R_gross), c: r => sgn(r.R_gross)}, {h: "P&L", f: r => usd(r.pnl_usd, 2), c: r => sgn(r.pnl_usd)},
+  ], d.closed, "No closed paper trades yet.");
+  renderStrategy(d.profile || {});
+  $("foot").textContent = `Updated ${new Date().toLocaleTimeString()} · refreshes every 60s · read-only`;
+}
+
+// ---- backtest ------------------------------------------------------------------------------------
+let BT = null;
+function renderBT() {
+  const s = BT.summary;
+  $("btNote").innerHTML = `${s.signals} signals (${s.long_signals} long, ${s.short_signals} short), ${esc(s.first)} to ${esc(s.last)}, ` +
+    `$${num(s.start, 0)} start, ${pct(s.risk_pct, 0)} base risk × conviction, ${s.orderings} random within-week orderings. ` +
+    `Net of fees, slippage and funding; 1m data decides bars that hit both stop and target. A backtest, not a promise.`;
+  $("btTiles").innerHTML =
+    tile("Median end balance", usd(s.median_end), `from ${usd(s.start)} · best 10% ${usd(s.p90_end)}`, "pos", "median_end") +
+    tile("Worst 10% end", usd(s.p10_end), "", "", "p10_end") +
+    tile("Max drawdown", pct(s.median_dd, 0), `median of orderings · worst 10% ${pct(s.p90_dd, 0)}`, "neg", "max_dd") +
+    tile("CAGR", pct(s.cagr, 0), "median route", "", "cagr") +
+    tile("Trades taken", s.route_taken, `of ${s.signals} signals · avg lev ${num(s.route_avg_lev, 1)}x`, "", "taken");
+  const rr = BT.trades.map(t => t.tp2 != null && t.stop != null ? Math.abs(t.tp2 - t.entry) / Math.abs(t.entry - t.stop) : null).filter(x => x != null && isFinite(x)).sort((a, b) => a - b);
+  $("qTiles").innerHTML =
+    tile("Win %", pct(s.win_rate, 0), "median route trades", "", "win_rate") +
+    tile("Average R", (s.avg_R >= 0 ? "+" : "") + num(s.avg_R) + "R", `median ${num(s.median_R)}R`, sgn(s.avg_R), "avg_R") +
+    tile("Risk-reward (payoff)", num(s.payoff), `avg win ${num(s.avg_win_R)}R · avg loss ${num(s.avg_loss_R)}R`, "", "payoff") +
+    tile("Planned R:R to TP2", rr.length ? num(rr[Math.floor(rr.length / 2)], 1) : "–", "median at signal", "", "rr_plan") +
+    tile("Profit factor", num(s.profit_factor), "", "", "profit_factor");
+  $("rTiles").innerHTML =
+    tile("Sharpe", num(s.sharpe), "daily, annualised", "", "sharpe") +
+    tile("Sortino", num(s.sortino), "daily, annualised", "", "sortino") +
+    tile("Calmar", num(s.calmar), "CAGR / max drawdown", "", "calmar") +
+    tile("Per-trade Sharpe", num(s.r_sharpe), "in R", "", "r_sharpe") +
+    tile("Per-trade Sortino", num(s.r_sortino), "in R", "", "r_sortino");
+  const rows = [];
+  for (const [k, v] of Object.entries(s.by_side || {})) rows.push({g: "Side " + k, ...v});
+  for (const [k, v] of Object.entries(s.by_tier || {})) rows.push({g: "Tier " + k, ...v});
+  const sl = {IS: "First half (before 15 Oct 2024)", OOS: "Second half", HO: "Held-out coins"};
+  for (const [k, v] of Object.entries(s.by_slice || {})) rows.push({g: sl[k] || k, ...v});
+  $("splitT").innerHTML = table([{h: "Group", l: 1, f: r => esc(r.g)}, {h: "Signals", f: r => r.n}, {h: "Win %", f: r => r.win != null ? pct(r.win, 0) : "–"},
+    {h: "Avg R", f: r => num(r.avg_R), c: r => sgn(r.avg_R)}], rows);
+  drawEquity(); drawDist();
+  const outs = [...new Set(BT.trades.map(t => t.result))].sort();
+  $("fRes").innerHTML = '<option value="">All outcomes</option>' + outs.map(o => `<option value="${esc(o)}">${esc((OUT[o] || [o])[0])}</option>`).join("");
+  renderCalls();
+}
+
+function drawEquity() {
+  const pts = BT.equity_curve; if (!pts.length) return;
+  const log = $("logScale").checked;
+  const W = 560, H = 240, L = 54, R = 10, T = 10, B = 24;
+  const vals = pts.map(p => p[1]); const f = v => log ? Math.log10(Math.max(v, 1)) : v;
+  const lo = Math.min(...vals.map(f)), hi = Math.max(...vals.map(f));
+  const x = i => L + (W - L - R) * i / (pts.length - 1), y = v => T + (H - T - B) * (1 - (f(v) - lo) / ((hi - lo) || 1));
+  const d = pts.map((p, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(p[1]).toFixed(1)}`).join("");
+  let ticks = "";
+  const tv = log ? [1e2, 3e2, 1e3, 3e3, 1e4, 3e4, 1e5, 3e5].filter(v => f(v) >= lo - .01 && f(v) <= hi + .01)
+                 : [0, .25, .5, .75, 1].map(k => Math.pow(10, lo) * 0 + (lo + (hi - lo) * k));
+  for (const v of tv) ticks += `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)"/><text x="${L - 6}" y="${y(v) + 4}" text-anchor="end">${usd(v)}</text>`;
+  const yrs = [...new Set(pts.map(p => p[0].slice(0, 4)))];
+  for (const yr of yrs) { const i = pts.findIndex(p => p[0].startsWith(yr)); if (i > 0) ticks += `<text x="${x(i)}" y="${H - 6}" text-anchor="middle">${yr}</text>`; }
+  $("eqChart").innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Equity curve">${ticks}` +
+    `<line x1="${L}" x2="${W - R}" y1="${y(BT.summary.start)}" y2="${y(BT.summary.start)}" stroke="var(--muted)" stroke-dasharray="3 3"/>` +
+    `<path d="${d}" fill="none" stroke="var(--accent)" stroke-width="1.8"/></svg>` +
+    `<div class="muted small">End ${usd(pts[pts.length - 1][1])}, max drawdown ${pct(BT.summary.route_dd, 0)}. Dashed line: start balance.</div>`;
+}
+$("logScale").addEventListener("change", drawEquity);
+
+function drawDist() {
+  const e = BT.summary.end_distribution; if (!e || !e.length) return;
+  const n = 16, lo = Math.min(...e), hi = Math.max(...e), w = (hi - lo) / n || 1;
+  const bins = Array(n).fill(0); e.forEach(v => bins[Math.min(n - 1, Math.floor((v - lo) / w))]++);
+  const W = 560, H = 240, L = 30, B = 34, T = 10, mx = Math.max(...bins);
+  const bw = (W - L - 10) / n;
+  const med = BT.summary.median_end;
+  let s = "";
+  bins.forEach((c, i) => { const h = (H - T - B) * c / mx; const x0 = L + i * bw;
+    const isMed = med >= lo + i * w && med < lo + (i + 1) * w;
+    s += `<rect x="${x0 + 1}" y="${H - B - h}" width="${bw - 2}" height="${h}" rx="2" fill="${isMed ? "var(--accent)" : "var(--chip)"}" stroke="var(--line)"><title>${usd(lo + i * w)}–${usd(lo + (i + 1) * w)}: ${c}</title></rect>`;
+    if (i % 4 === 0) s += `<text x="${x0}" y="${H - B + 14}">${usd(lo + i * w)}</text>`; });
+  s += `<text x="${W - 10}" y="${H - B + 14}" text-anchor="end">${usd(hi)}</text><text x="${L}" y="${H - 4}">highlighted: the median bin</text>`;
+  $("distChart").innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Distribution of end balances">${s}</svg>`;
+}
+
+function renderCalls() {
+  const fs = $("fSide").value, ft = $("fTier").value, fr = $("fRes").value, q = $("fSym").value.trim().toUpperCase();
+  const rows = BT.trades.filter(t => (!fs || t.side === fs) && (!ft || t.tier === ft) && (!fr || t.result === fr) && (!q || (t.coin || "").includes(q)));
+  $("callsCount").textContent = `${rows.length} trades`;
+  $("callsT").innerHTML = table([
+    {h: "Entry date", l: 1, f: r => esc(r.entry_date)}, {h: "Coin", l: 1, f: r => esc(r.coin)}, {h: "Side", l: 1, f: r => sideChip(r.side)},
+    {h: "Tier", f: r => esc(r.tier)}, {h: "Level", f: r => `${px(r.level)} <span class="muted">${esc(r.level_tf || "")}</span>`},
+    {h: "Entry", f: r => px(r.entry)}, {h: "SL", f: r => `${px(r.stop)} <span class="muted">${pct(r.stop_pct)}</span>`},
+    {h: "TP1", f: r => px(r.tp1_eff)}, {h: "TP2", f: r => px(r.tp2)},
+    {h: "Lev", f: r => num(r.leverage, 1) + "x"}, {h: "Margin", f: r => usd(r.margin_usd)}, {h: "Risk", f: r => usd(r.risk_usd)},
+    {h: "Outcome", l: 1, f: r => outChip(r.result)}, {h: "Exit date", l: 1, f: r => esc(r.exit_date)}, {h: "Exit", f: r => px(r.exit_price)},
+    {h: "R", f: r => (r.R >= 0 ? "+" : "") + num(r.R), c: r => sgn(r.R)}, {h: "P&L", f: r => usd(r.pnl_usd), c: r => sgn(r.pnl_usd)},
+    {h: "Balance after", f: r => usd(r.closed_balance_after)},
+  ], rows, "No trades match.");
+}
+["fSide", "fTier", "fRes"].forEach(id => $(id).addEventListener("change", renderCalls));
+$("fSym").addEventListener("input", renderCalls);
+
+// ---- strategy ------------------------------------------------------------------------------------
+function renderStrategy(p) {
+  if (!p.reclaim) return;
+  const rf = p.required_filters || {};
+  const fl = list => (list || []).map(k => ({F2_drawdown: `F2 drawdown ${pct(p.dd_crypto?.[0], 0)}–${pct(p.dd_crypto?.[1], 0)} below the 120-day high`,
+    F3_fomc: `FOMC: no entry within ±${p.fomc_days} days`, F3_qclose: `Quarter close: no entry within ${p.quarter_close_days} days`,
+    F4_location: "F4 location: level in the bottom 25% of the 60-day range (shorts: top 25%)", stop_max: `Stop ≤ ${pct(p.max_stop_pct, 0)}`,
+    F1_regime: "F1 BTC regime", min_rr: "R:R to TP2 ≥ 2"}[k] || k));
+  const li = a => "<ul class='rules'>" + a.map(x => `<li>${esc(x)}</li>`).join("") + "</ul>";
+  const caps = Object.entries(p.lev_caps || {}).map(([k, v]) => `${k} ${v}x`).join(", ");
+  $("stratBox").innerHTML =
+    `<div class="panel"><b>Setup</b>${li([`Sweep: price trades beyond a weekly/monthly level by at least ${p.min_sweep_atr4h} × ATR(4h)` + (p.skip_weekend ? "; weekend sweeps ignored" : ""),
+      `Acceptance cancels it: deeper than ${p.max_atr1d} × ATR(daily) or ${p.max_days_below} daily closes beyond`,
+      `Reclaim ${p.reclaim}: a weekly close back above the swept level (below it for shorts)`,
+      `Entry ${p.entry}: the first 15m pullback that holds the level`,
+      `Stop: swept low − max(${p.buffer_atr4h} × ATR(4h), ${pct(p.buffer_pct, 0)})`,
+      "Management: 50% off at +1R, stop to entry, rest to TP2"])}</div>` +
+    `<div class="panel"><b>Universe</b>${li([`T1: ${(p.t1 || []).join(", ")}`, `T2: the rest of the top ${p.top_n} WEEX crypto perps by 24h volume`,
+      p.crypto_only ? "Crypto only, no TradeFi" : "Includes TradeFi", p.shorts ? "Longs and shorts" : "Longs only"])}</div>` +
+    `<div class="panel"><b>Filters, longs</b>${li(fl(rf.long || rf))}</div>` +
+    `<div class="panel"><b>Filters, shorts</b>${li(fl(rf.short || rf))}</div>` +
+    `<div class="panel"><b>Risk and sizing</b>${li([`Base risk ${pct(p.risk, 0)} of equity per trade`,
+      `Conviction: monthly level, or weekly level with F2 in band = ${p.tier_mult?.strong}x; otherwise ${p.tier_mult?.weekly_only}x; shorts × ${p.tier_mult?.short}`,
+      `Total open risk ≤ ${pct(p.max_open_risk, 0)}; ${p.max_per_cluster ? "≤ " + p.max_per_cluster + " per cluster" : "no per-cluster cap"}; one position per coin per side`,
+      `Size = risk $ / stop %; leverage is the output; liquidation at least ${p.liq_buffer_mult} stop-distance beyond the stop`,
+      `Leverage caps: ${caps}. If more is needed the size is cut, never the stop widened. Isolated margin.`])}</div>` +
+    `<div class="panel"><b>What this is</b>${li(["Paper alerts only: the app reads market data without API keys and never places orders.",
+      "Alerts go to Telegram; this page is read-only.", "Settings come from config.yaml in the image; change them in the repository and redeploy."])}</div>`;
+}
+
+// ---- load ------------------------------------------------------------------------------------
+async function load() {
+  try {
+    const r = await fetch("api/data", {credentials: "same-origin"});
+    if (r.status === 401) { $("app").hidden = true; $("login").hidden = false; $("pw").focus(); return; }
+    const d = await r.json();
+    $("login").hidden = true; $("app").hidden = false;
+    renderLive(d);
+    if (!BT) { const b = await fetch("api/backtest", {credentials: "same-origin"}); if (b.ok) { BT = await b.json(); renderBT(); } }
+  } catch (e) { $("banner").innerHTML = `<div class="banner bad">Could not load data: ${esc(e.message)}</div>`; }
+}
+$("loginForm").addEventListener("submit", async e => {
+  e.preventDefault(); $("loginErr").textContent = "";
+  const r = await fetch("login", {method: "POST", headers: {"Content-Type": "application/json"}, credentials: "same-origin", body: JSON.stringify({password: $("pw").value})});
+  if (r.ok) { $("pw").value = ""; load(); } else { $("loginErr").textContent = (await r.json().catch(() => ({}))).error || "Sign-in failed"; }
+});
+try { const t = localStorage.getItem("biss_tab"); if (t) document.querySelector(`#tabs button[data-t="${t}"]`)?.click(); } catch (_) {}
+load(); setInterval(load, 60000);
+</script>
+</body>
+</html>

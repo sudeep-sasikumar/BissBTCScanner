@@ -103,8 +103,9 @@ validation:
 
 scanner:
   # PAPER ALERTS ONLY. Strategy of 26 Nov 2026 (user spec): R3w / E2, T1 + T2 crypto, longs and shorts.
-  # User-supplied backtest reference (Oct 2022 - Nov 2026, $1,000, 200 orderings): 462 signals,
-  # median end $25,737, worst-10% $15,077, median max drawdown 55%.
+  # Backtest (scripts/u12_strategy.py main 200 -> reports/strategy.md; $1,000, 200 orderings): 462 signals,
+  # median end $21,958, worst-10% $14,133, median max drawdown 62%. With sizing.strong_needs_regime: true
+  # (weekly level also needs F1 for 1.0x): $26,011 / $16,882 / 57% (the user's reference $25,737 / $15,077 / 55%).
   poll_seconds: 60
   state_file: data/scanner_state.json
   symbols: [BTCUSDT, ETHUSDT, SOLUSDT, HYPEUSDT, ZECUSDT]   # T1
