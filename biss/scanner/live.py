@@ -53,6 +53,8 @@ class Scanner:
     def _symbols(self) -> list[str]:
         sc = self.cfg.scanner
         syms = list(sc.symbols)
+        if sc.get("all_contracts"):
+            return [s for s in self.contracts if s.isascii()]
         if sc.get("top_n_by_weex_volume"):
             tk = sorted(weex.ticker_24h(), key=lambda x: -float(x.get("quoteVolume") or 0))
             for x in tk:
@@ -75,6 +77,9 @@ class Scanner:
         for s in self.symbols + ["BTCUSDT"]:
             try:
                 d = binance.rest_klines(s, "1d", start)
+            except Exception:  # noqa: BLE001
+                d = pd.DataFrame()
+            try:
                 if d.empty:  # not on Binance: WEEX daily (<= 1000 bars)
                     d = weex.klines_recent(s, "1d", 1000)
                 self.daily[s] = d
@@ -233,6 +238,9 @@ class Scanner:
                         continue
                     self.state["alerted"].append(key)
                     if not s["passes"] and not self.cfg.scanner.alert_failed_filters:
+                        continue
+                    # one position per symbol and side, as in the backtest
+                    if s["passes"] and any(o["symbol"] == sym and o["side"] == s["side"] for o in self.state["open"]):
                         continue
                     telegram.send(("" if s["passes"] else "[FILTERS FAILED - info only]\n") + self.message(s))
                     if s["passes"]:

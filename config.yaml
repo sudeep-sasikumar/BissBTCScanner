@@ -29,10 +29,10 @@ levels:
   max_level_dist_pct: 0.50       # levels within 50% of the prior close (one-day capitulations: ZEC 5 Jun 2026 fell 46%)
 
 sweep:
-  min_atr4h: 0.3                 # sweep_min = 0.3 * ATR(4h)
+  min_atr4h: 0.0                 # any trade below the level counts (was 0.3 * ATR(4h); user choice 26 Nov)
   max_atr1d: 1.5                 # sweep_max = 1.5 * ATR(daily) -> acceptance
   max_days_below: 3              # daily closes below level -> acceptance
-  skip_weekend: true
+  skip_weekend: false            # weekend sweeps trigger too (user choice 26 Nov; was true)
   atr_len: 14
 
 reclaim:
@@ -68,14 +68,14 @@ filters:
   dd_crypto: [0.30, 0.50]        # 30-50% below 120-day high
   dd_tradfi: [0.10, 0.30]
   dd_lookback_days: 120
-  fomc_days: 7
+  fomc_days: 2                   # +-2 days of an FOMC decision (user choice 26 Nov; was 7)
   quarter_close_days: 3
   earnings_sessions: 2
 
 universe:
   t1: [BTC, ETH, HYPE, SOL, ZEC]
   t2_top_n: 50
-  liquidity_floor_usd: 20000000  # 30-day median daily volume
+  liquidity_floor_usd: 0         # no volume floor (user choice 26 Nov; was $20M 30-day median daily volume)
   rank_lookback_days: 30
 
 sizing:
@@ -104,11 +104,15 @@ scanner:
   # Only tiers that passed section 8 go here (see reports/backtest.md). Until a tier passes, keep this list
   # small and treat every alert as observation only.
   symbols: [BTCUSDT, ETHUSDT, SOLUSDT, HYPEUSDT, ZECUSDT]
-  top_n_by_weex_volume: 50       # T2 proxy: top-50 WEEX crypto perps by 24h volume (T3/T4 failed validation)
+  top_n_by_weex_volume: 0        # used only when all_contracts is false
+  all_contracts: true            # every WEEX contract, crypto and TradeFi (no volume filter)
   reclaim: R3w                   # validated variant (reports/final.md); R1 15m failed out-of-sample
   entry: E2
-  shorts: false
+  shorts: true
   paper_equity: 10000
-  required_filters: [F2_drawdown, F3_fomc, F3_qclose, F4_location, stop_max]   # kept by the protocol; F1 shown as info
+  required_filters: [F3_fomc, F3_qclose, stop_max]   # user profile (26 Nov). Alerts still show every filter.
+  # Validated profile (reports/final.md): [F2_drawdown, F3_fomc, F3_qclose, F4_location, stop_max] with
+  # fomc_days 7, min_atr4h 0.3, skip_weekend true, liquidity_floor_usd 20000000, all_contracts false,
+  # top_n_by_weex_volume 50, shorts false.
   alert_failed_filters: false    # true = also send near-misses, marked "FILTERS FAILED - info only"
   # Telegram token / chat id come from env: BISS_TG_TOKEN, BISS_TG_CHAT. Never hard-code.
